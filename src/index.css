@@ -1,5 +1,5 @@
 /* ========================================
-   KnockLog — Mobile-First Dark Theme
+   KnockLog v2 — Field Telemetry Dark Theme
    ======================================== */
 
 :root {
@@ -200,7 +200,7 @@ body {
 }
 
 /* ========================================
-   Logger Main Screen
+   Logger Container
    ======================================== */
 
 .logger-container {
@@ -212,7 +212,10 @@ body {
   position: relative;
 }
 
-/* Flash overlay */
+/* ========================================
+   Flash Overlay
+   ======================================== */
+
 .flash-overlay {
   position: fixed;
   top: 0;
@@ -244,7 +247,10 @@ body {
   100% { opacity: 0; }
 }
 
-/* Header */
+/* ========================================
+   Header
+   ======================================== */
+
 .logger-header {
   display: flex;
   align-items: center;
@@ -262,6 +268,12 @@ body {
   gap: 10px;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .app-title {
   font-size: 22px;
   font-weight: 800;
@@ -270,17 +282,6 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-}
-
-.version-tag {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-muted);
-  background: var(--bg-elevated);
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-left: -4px;
-  margin-right: 4px;
 }
 
 .rep-badge {
@@ -309,7 +310,72 @@ body {
   border: 1px solid rgba(99, 102, 241, 0.2);
 }
 
-/* Profile dropdown */
+.break-btn {
+  padding: 6px 12px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 20px;
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+
+.break-btn:active {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.end-day-btn {
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 20px;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+
+.end-day-btn:active {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.break-indicator {
+  padding: 4px 10px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warning);
+  letter-spacing: 0.5px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.closed-indicator {
+  padding: 4px 10px;
+  background: rgba(107, 114, 128, 0.15);
+  border: 1px solid rgba(107, 114, 128, 0.3);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gray);
+  letter-spacing: 0.5px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ========================================
+   Profile Dropdown
+   ======================================== */
+
 .profile-dropdown {
   background: var(--bg-card);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -348,7 +414,10 @@ body {
   background: rgba(239, 68, 68, 0.2);
 }
 
-/* Error bar */
+/* ========================================
+   Error Bar
+   ======================================== */
+
 .error-bar {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.2);
@@ -368,7 +437,159 @@ body {
   opacity: 0.6;
 }
 
-/* Metrics strip */
+/* ========================================
+   START DAY Screen
+   ======================================== */
+
+.start-day-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60dvh;
+  text-align: center;
+  gap: 12px;
+}
+
+.start-day-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, var(--accent), #818cf8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 8px;
+  box-shadow: 0 8px 32px var(--accent-glow);
+}
+
+.start-day-title {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.start-day-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 260px;
+}
+
+.start-day-btn {
+  margin-top: 16px;
+  padding: 18px 64px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  font-family: inherit;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: transform 0.1s;
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+
+.start-day-btn:active {
+  transform: scale(0.97);
+}
+
+/* ========================================
+   Street Input
+   ======================================== */
+
+.street-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.street-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.street-input:focus {
+  border-color: var(--accent);
+}
+
+.street-input::placeholder {
+  color: var(--text-muted);
+}
+
+.street-set-btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+
+.street-set-btn:active {
+  transform: scale(0.97);
+}
+
+.active-street {
+  padding: 6px 12px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* ========================================
+   HERO Metric — TOTAL DOORS (dominant)
+   ======================================== */
+
+.hero-metric {
+  text-align: center;
+  padding: 20px 0 12px;
+}
+
+.hero-count {
+  display: block;
+  font-size: 72px;
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(135deg, #fff 30%, var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  margin-top: 4px;
+}
+
+/* ========================================
+   Secondary Metrics Strip
+   ======================================== */
+
 .metrics-strip {
   display: flex;
   gap: 6px;
@@ -386,13 +607,13 @@ body {
 
 .metric-count {
   display: block;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
 }
 
 .metric-label {
   display: block;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -400,12 +621,19 @@ body {
   margin-top: 2px;
 }
 
-/* Outcome buttons */
+/* ========================================
+   Outcome Buttons
+   ======================================== */
+
 .outcome-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 20px;
+}
+
+.outcome-grid-3 {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .outcome-btn {
@@ -414,15 +642,14 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 28px 12px;
-  border: none;
+  padding: 24px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: var(--radius);
   background: var(--bg-card);
   color: var(--text-primary);
   font-family: inherit;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.2s;
-  border: 1px solid rgba(255, 255, 255, 0.04);
   position: relative;
   overflow: hidden;
 }
@@ -444,17 +671,21 @@ body {
 }
 
 .outcome-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .outcome-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
-/* Objection panel */
+/* ========================================
+   Objection Panel
+   ======================================== */
+
 .objection-panel {
   margin-bottom: 20px;
   animation: slideDown 0.2s ease;
@@ -492,7 +723,7 @@ body {
 }
 
 .objection-btn {
-  padding: 18px 10px;
+  padding: 16px 8px;
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: var(--radius-sm);
   background: rgba(59, 130, 246, 0.08);
@@ -515,7 +746,158 @@ body {
   opacity: 0.5;
 }
 
-/* Recent logs */
+/* ========================================
+   Break Overlay
+   ======================================== */
+
+.break-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60dvh;
+  text-align: center;
+  gap: 12px;
+}
+
+.break-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 24px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 2px solid rgba(245, 158, 11, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 900;
+  color: var(--warning);
+  letter-spacing: 4px;
+}
+
+.break-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--warning);
+}
+
+.break-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.break-timer {
+  font-size: 48px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  margin: 8px 0;
+}
+
+.resume-btn {
+  margin-top: 16px;
+  padding: 18px 64px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--success);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  font-family: inherit;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: transform 0.1s;
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+}
+
+.resume-btn:active {
+  transform: scale(0.97);
+}
+
+/* ========================================
+   Closed Day Summary
+   ======================================== */
+
+.closed-summary {
+  padding: 16px 0;
+}
+
+.closed-metrics-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.closed-metric {
+  flex: 1;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  padding: 12px 4px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.closed-metric-count {
+  display: block;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.closed-metric-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+/* ========================================
+   Street Breakdown
+   ======================================== */
+
+.street-breakdown {
+  margin-top: 16px;
+}
+
+.street-breakdown-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.street-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  margin-bottom: 4px;
+}
+
+.street-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+
+.street-stat {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ========================================
+   Recent Logs
+   ======================================== */
+
 .recent-logs {
   margin-top: 8px;
 }
@@ -545,7 +927,7 @@ body {
 .log-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 10px 14px;
   background: var(--bg-card);
   border-radius: var(--radius-sm);
@@ -553,21 +935,28 @@ body {
 }
 
 .log-outcome {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  min-width: 100px;
+  min-width: 80px;
 }
 
 .log-objection {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-secondary);
   flex: 1;
-  text-align: right;
+}
+
+.log-street {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
 }
 
 .log-time {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   white-space: nowrap;
+  margin-left: auto;
 }
