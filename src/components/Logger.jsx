@@ -71,16 +71,34 @@ export default function Logger({ user, repName, onLogout }) {
 
   // ─── Fetch events for session ───
   const fetchEvents = useCallback(async (sessionId) => {
-    const { data, error: err } = await supabase
+    const { data: knocks, error: errK } = await supabase
       .from('knock_events')
       .select('*')
-      .eq('session_id', sessionId)
-      .order('timestamp', { ascending: false });
-    if (err) {
+      .eq('session_id', sessionId);
+      
+    const { data: breaks, error: errB } = await supabase
+      .from('break_sessions')
+      .select('*')
+      .eq('session_id', sessionId);
+
+    if (errK || errB) {
       setError('Failed to load events');
       return;
     }
-    setEvents(data || []);
+
+    const combined = [];
+    (knocks || []).forEach(k => combined.push({ ...k, type: 'KNOCK' }));
+    (breaks || []).forEach(b => {
+      combined.push({
+        id: b.id,
+        type: 'BREAK',
+        timestamp: b.break_start_time,
+        duration: b.duration
+      });
+    });
+
+    combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    setEvents(combined);
   }, []);
 
   // ─── START DAY ───
@@ -178,6 +196,7 @@ export default function Logger({ user, repName, onLogout }) {
     }
     setActiveBreak(data);
     setDayState('ON_BREAK');
+    fetchEvents(session.id);
   }
 
   async function endBreak() {
@@ -199,10 +218,11 @@ export default function Logger({ user, repName, onLogout }) {
     }
     setActiveBreak(null);
     setDayState('ACTIVE');
+    fetchEvents(activeBreak.session_id);
   }
 
   // ─── DERIVED METRICS ───
-  const totalDoors = events.length;
+  const totalDoors = events.filter(e => e.type === 'KNOCK').length;
   const totalConvos = events.filter(e => e.outcome_type === 'CONVO').length;
   const totalSales = events.filter(e => e.outcome_type === 'SALE').length;
   const totalNA = events.filter(e => e.outcome_type === 'NO_ANSWER').length;
@@ -301,7 +321,7 @@ export default function Logger({ user, repName, onLogout }) {
   if (dayState === 'CLOSED') {
     // Street breakdown
     const streetMap = {};
-    events.forEach(e => {
+    events.filter(e => e.type === 'KNOCK').forEach(e => {
       if (!streetMap[e.street_name]) streetMap[e.street_name] = { doors: 0, sales: 0, convos: 0 };
       streetMap[e.street_name].doors++;
       if (e.outcome_type === 'SALE') streetMap[e.street_name].sales++;
@@ -505,15 +525,25 @@ export default function Logger({ user, repName, onLogout }) {
           <p className="no-logs">No events logged yet. Set a street and start knocking.</p>
         ) : (
           <div className="log-list">
-            {events.slice(0, 25).map(e => (
+            {events.slice(0, 30).map(e => (
               <div className="log-item" key={e.id}>
-                <div className="log-outcome" style={{
-                  color: OUTCOMES.find(o => o.key === e.outcome_type)?.color || '#fff'
-                }}>
-                  {e.outcome_type.replace('_', ' ')}
-                </div>
-                {e.objection_type && <div className="log-objection">{e.objection_type}</div>}
-                <div className="log-street">{e.street_name}</div>
+                {e.type === 'BREAK' ? (
+                  <>
+                    <div className="log-outcome" style={{ color: '#f59e0b' }}>BREAK</div>
+                    <div className="log-objection">{e.duration ? `${Math.floor(e.duration / 60)}m` : 'Active'}</div>
+                    <div className="log-street"></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="log-outcome" style={{
+                      color: OUTCOMES.find(o => o.key === e.outcome_type)?.color || '#fff'
+                    }}>
+                      {e.outcome_type.replace('_', ' ')}
+                    </div>
+                    {e.objection_type && <div className="log-objection">{e.objection_type}</div>}
+                    <div className="log-street">{e.street_name}</div>
+                  </>
+                )}
                 <div className="log-time">
                   {new Date(e.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
