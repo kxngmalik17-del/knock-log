@@ -279,6 +279,17 @@ body {
   background-clip: text;
 }
 
+.version-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: -4px;
+  margin-right: 4px;
+}
+
 .rep-badge {
   padding: 4px 10px;
   background: var(--bg-elevated);

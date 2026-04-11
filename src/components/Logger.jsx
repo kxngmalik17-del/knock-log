@@ -106,6 +106,7 @@ export default function Logger({ user, repName, onLogout }) {
       <header className="logger-header">
         <div className="header-left">
           <h1 className="app-title">KnockLog</h1>
+          <span className="version-tag">v1.0.1</span>
           <span className="rep-badge" onClick={() => setShowProfile(!showProfile)}>
             {repName}
           </span>
