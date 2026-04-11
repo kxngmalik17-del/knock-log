@@ -1,9 +1,9 @@
 -- ============================================
--- KnockLog v2 — Session-Based Telemetry Schema
+-- KnockLog v1 — Anti-Gravity Schema
 -- Run this in the Supabase SQL Editor
 -- ============================================
 
--- 1. Reps profile table (unchanged from v1)
+-- 1. Reps profile table
 create table if not exists public.reps (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade not null unique,
@@ -18,7 +18,9 @@ create table if not exists public.day_sessions (
   session_date date not null default current_date,
   start_time timestamp with time zone default now(),
   end_time timestamp with time zone,
-  status text not null default 'OPEN' check (status in ('OPEN', 'CLOSED'))
+  status text not null default 'OPEN' check (status in ('OPEN', 'CLOSED')),
+  export_status text default 'PENDING',
+  export_url text
 );
 
 -- 3. Knock events (immutable)
@@ -27,9 +29,12 @@ create table if not exists public.knock_events (
   rep_id uuid references auth.users(id) on delete cascade not null,
   session_id uuid references public.day_sessions(id) on delete cascade not null,
   street_name text not null,
+  house_number text,
   timestamp timestamp with time zone default now(),
   outcome_type text not null check (outcome_type in ('NO_ANSWER', 'CONVO', 'SALE')),
-  objection_type text
+  convo_status text,
+  objection_type text,
+  callback_time timestamp with time zone
 );
 
 -- 4. Break sessions
@@ -89,3 +94,16 @@ create index if not exists idx_breaks_session
   on public.break_sessions (session_id);
 create index if not exists idx_reps_user_id
   on public.reps (user_id);
+
+-- 11. Create storage bucket for exports
+insert into storage.buckets (id, name, public) 
+values ('exports', 'exports', false) 
+on conflict do nothing;
+
+create policy "Users can upload their own exports" 
+on storage.objects for insert 
+with check ( bucket_id = 'exports' and auth.uid() = owner );
+
+create policy "Users can view their own exports" 
+on storage.objects for select 
+using ( bucket_id = 'exports' and auth.uid() = owner );

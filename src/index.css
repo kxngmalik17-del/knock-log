@@ -982,3 +982,120 @@ body {
   white-space: nowrap;
   margin-left: auto;
 }
+
+/* ========================================
+   House Cursor
+   ======================================== */
+.location-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.house-cursor-bar {
+  display: flex;
+  gap: 8px;
+}
+
+.house-input {
+  flex: 1;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  outline: none;
+}
+
+.house-input:focus {
+  border-color: var(--accent);
+}
+
+.step-toggles {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-elevated);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.step-btn {
+  padding: 0 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.step-btn.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+/* ========================================
+   Callback Picker
+   ======================================== */
+.callback-picker-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-elevated);
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.callback-input {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-input);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.callback-confirm-btn {
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cb-highlight {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+/* ========================================
+   Export / Downloader
+   ======================================== */
+.download-btn {
+  width: 100%;
+  padding: 16px;
+  background: #059669;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+.sub-metrics { margin-top: 16px; }

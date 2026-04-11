@@ -7,13 +7,15 @@ const OUTCOMES = [
   { key: 'SALE', label: 'SALE', color: '#10b981' },
 ];
 
-const OBJECTIONS = [
+const CONVO_OPTIONS = [
+  'CALLBACK',
   'NOT INTERESTED',
   'ALREADY HAVE / DIY',
   'BAD TIMING',
   'NEED TO THINK',
   'NOT DECISION MAKER',
-  'NOT QUALIFIED',
+  'PRICE',
+  'NOT CONVINCED'
 ];
 
 // States: NOT_STARTED | ACTIVE | ON_BREAK | CLOSED
@@ -22,9 +24,19 @@ export default function Logger({ user, repName, onLogout }) {
   const [session, setSession] = useState(null);
   const [street, setStreet] = useState('');
   const [streetInput, setStreetInput] = useState('');
+  
+  // House Cursor State
+  const [houseNum, setHouseNum] = useState('');
+  const [stepSize, setStepSize] = useState(2);
+
   const [events, setEvents] = useState([]);
   const [activeBreak, setActiveBreak] = useState(null);
+  
+  // UI Panels State
   const [showObjections, setShowObjections] = useState(false);
+  const [showCallbackPicker, setShowCallbackPicker] = useState(false);
+  const [callbackTime, setCallbackTime] = useState('');
+
   const [logging, setLogging] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [flashOutcome, setFlashOutcome] = useState(null);
@@ -118,22 +130,109 @@ export default function Logger({ user, repName, onLogout }) {
     setEvents([]);
     setStreet('');
     setStreetInput('');
+    setHouseNum('');
     setDayState('ACTIVE');
   }
 
   // ─── END DAY ───
   async function endDay() {
     if (!session) return;
+    setLogging(true);
+    setError('');
+
+    // 1. Generate CSV
+    const rows = [
+      ['Date', 'Time', 'Street', 'House Number', 'Outcome', 'Status/Objection', 'Callback Time']
+    ];
+    
+    // Sort events historically for export
+    const historicalEvents = [...events].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    historicalEvents.forEach(e => {
+      if (e.type === 'KNOCK') {
+        const d = new Date(e.timestamp);
+        rows.push([
+          d.toLocaleDateString(),
+          d.toLocaleTimeString(),
+          e.street_name || '',
+          e.house_number || '',
+          e.outcome_type || '',
+          e.convo_status || e.objection_type || '',
+          e.callback_time ? new Date(e.callback_time).toLocaleString() : ''
+        ]);
+      } else if (e.type === 'BREAK') {
+        const d = new Date(e.timestamp);
+        rows.push([
+          d.toLocaleDateString(),
+          d.toLocaleTimeString(),
+          'BREAK',
+          '',
+          `${e.duration ? Math.floor(e.duration/60) + ' min' : 'Started'}`,
+          '',
+          ''
+        ]);
+      }
+    });
+
+    const csvContent = rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    
+    // 2. Upload to storage
+    const dateStr = new Date().toISOString().split('T')[0];
+    const fileName = `${user.id}/${session.id}_${dateStr}.csv`;
+    
+    let exportUrl = null;
+    let exportStatus = 'FAILED';
+    const { data: uploadData, error: uploadErr } = await supabase.storage
+      .from('exports')
+      .upload(fileName, blob, { upsert: true });
+      
+    if (!uploadErr && uploadData) {
+      exportStatus = 'COMPLETE';
+      exportUrl = fileName;
+    } else {
+      console.error("Export upload failed. You may need to verify Bucket permissions.", uploadErr);
+    }
+
+    // 3. Close Session in DB
     const { error: err } = await supabase
       .from('day_sessions')
-      .update({ status: 'CLOSED', end_time: new Date().toISOString() })
+      .update({ 
+        status: 'CLOSED', 
+        end_time: new Date().toISOString(),
+        export_status: exportStatus,
+        export_url: exportUrl
+      })
       .eq('id', session.id);
+
     if (err) {
       setError('Failed to end day: ' + err.message);
+      setLogging(false);
       return;
     }
-    setSession({ ...session, status: 'CLOSED' });
+    
+    // 4. Update local state
+    setSession({ ...session, status: 'CLOSED', export_status: exportStatus, export_url: exportUrl });
     setDayState('CLOSED');
+    setLogging(false);
+  }
+
+  // ─── DOWNLOAD CSV ───
+  async function downloadCsv() {
+    if (!session?.export_url) return;
+    const { data, error: err } = await supabase.storage.from('exports').download(session.export_url);
+    if (!err && data) {
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = session.export_url.split('/').pop() || 'export.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } else {
+      setError('Failed to download export');
+    }
   }
 
   // ─── SET STREET ───
@@ -144,21 +243,41 @@ export default function Logger({ user, repName, onLogout }) {
   }
 
   // ─── LOG KNOCK EVENT ───
-  async function logKnock(outcomeType, objection = null) {
+  async function logKnock(outcomeType, convoOpt = null, cbTime = null) {
     if (dayState !== 'ACTIVE') return;
-    if (!street) {
-      setError('Set a street name first');
+    if (!street || !houseNum) {
+      setError('Set street & house number first');
       return;
     }
     setLogging(true);
     setError('');
 
+    let cStatus = null;
+    let oType = null;
+    let cbFinal = cbTime;
+
+    if (convoOpt === 'CALLBACK') {
+      cStatus = 'CALLBACK';
+    } else if (convoOpt) {
+      oType = convoOpt;
+      cStatus = 'OBJECTION';
+    }
+
+    if (cbFinal && cbFinal.trim() !== '') {
+      cbFinal = new Date(cbFinal).toISOString();
+    } else {
+      cbFinal = null;
+    }
+
     const { error: err } = await supabase.from('knock_events').insert({
       rep_id: user.id,
       session_id: session.id,
       street_name: street,
+      house_number: houseNum,
       outcome_type: outcomeType,
-      objection_type: objection,
+      convo_status: cStatus,
+      objection_type: oType,
+      callback_time: cbFinal,
     });
 
     if (err) {
@@ -167,9 +286,21 @@ export default function Logger({ user, repName, onLogout }) {
       return;
     }
 
+    // Auto-increment house number safely
+    const numPart = houseNum.match(/\d+/);
+    if (numPart) {
+      const num = parseInt(numPart[0], 10);
+      const nextNum = num + stepSize;
+      setHouseNum(houseNum.replace(numPart[0], nextNum.toString()));
+    }
+
     setFlashOutcome(outcomeType);
     setTimeout(() => setFlashOutcome(null), 600);
+    
+    // Reset panels
     setShowObjections(false);
+    setShowCallbackPicker(false);
+    setCallbackTime('');
     setLogging(false);
     fetchEvents(session.id);
   }
@@ -179,6 +310,14 @@ export default function Logger({ user, repName, onLogout }) {
       setShowObjections(true);
     } else {
       logKnock(outcomeType);
+    }
+  }
+
+  function handleConvoOption(opt) {
+    if (opt === 'CALLBACK') {
+      setShowCallbackPicker(true);
+    } else {
+      logKnock('CONVO', opt);
     }
   }
 
@@ -225,7 +364,6 @@ export default function Logger({ user, repName, onLogout }) {
   const totalDoors = events.filter(e => e.type === 'KNOCK').length;
   const totalConvos = events.filter(e => e.outcome_type === 'CONVO').length;
   const totalSales = events.filter(e => e.outcome_type === 'SALE').length;
-  const totalNA = events.filter(e => e.outcome_type === 'NO_ANSWER').length;
   const conversionRate = totalDoors > 0 ? ((totalSales / totalDoors) * 100).toFixed(1) : '0.0';
 
   // ─── LOADING ───
@@ -345,10 +483,6 @@ export default function Logger({ user, repName, onLogout }) {
 
           <div className="closed-metrics-row">
             <div className="closed-metric">
-              <span className="closed-metric-count" style={{ color: '#6b7280' }}>{totalNA}</span>
-              <span className="closed-metric-label">N/A</span>
-            </div>
-            <div className="closed-metric">
               <span className="closed-metric-count" style={{ color: '#3b82f6' }}>{totalConvos}</span>
               <span className="closed-metric-label">CONVO</span>
             </div>
@@ -361,6 +495,12 @@ export default function Logger({ user, repName, onLogout }) {
               <span className="closed-metric-label">CLOSE %</span>
             </div>
           </div>
+
+          {session?.export_status === 'COMPLETE' && (
+            <button className="download-btn" onClick={downloadCsv}>
+              DOWNLOAD EXPORT CSV
+            </button>
+          )}
 
           {Object.keys(streetMap).length > 0 && (
             <div className="street-breakdown">
@@ -413,8 +553,10 @@ export default function Logger({ user, repName, onLogout }) {
           </span>
         </div>
         <div className="header-right">
-          <button className="break-btn" onClick={startBreak}>BREAK</button>
-          <button className="end-day-btn" onClick={endDay}>END</button>
+          <button className="break-btn" onClick={startBreak} disabled={logging}>BREAK</button>
+          <button className="end-day-btn" onClick={endDay} disabled={logging}>
+            {logging ? 'CLOSING...' : 'END'}
+          </button>
         </div>
       </header>
 
@@ -435,25 +577,43 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
       )}
 
-      {/* Street input */}
-      {street ? (
-        <div className="active-street-container">
-          <div className="active-street">{street}</div>
-          <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); }}>END STREET</button>
-        </div>
-      ) : (
-        <div className="street-bar">
-          <input
-            type="text"
-            className="street-input"
-            placeholder="Enter street name..."
-            value={streetInput}
-            onChange={e => setStreetInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
-          />
-          <button className="street-set-btn" onClick={commitStreet}>START</button>
-        </div>
-      )}
+      {/* Location / Cursor Box */}
+      <div className="location-panel">
+        {street ? (
+          <>
+            <div className="active-street-container">
+              <div className="active-street">{street}</div>
+              <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); }}>END STREET</button>
+            </div>
+            
+            <div className="house-cursor-bar">
+              <input
+                type="text"
+                className="house-input"
+                placeholder="House #"
+                value={houseNum}
+                onChange={e => setHouseNum(e.target.value)}
+              />
+              <div className="step-toggles">
+                <button className={`step-btn ${stepSize === 1 ? 'active' : ''}`} onClick={() => setStepSize(1)}>+1</button>
+                <button className={`step-btn ${stepSize === 2 ? 'active' : ''}`} onClick={() => setStepSize(2)}>+2</button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="street-bar">
+            <input
+              type="text"
+              className="street-input"
+              placeholder="Enter street name..."
+              value={streetInput}
+              onChange={e => setStreetInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
+            />
+            <button className="street-set-btn" onClick={commitStreet}>START</button>
+          </div>
+        )}
+      </div>
 
       {/* HERO: Total Doors */}
       <div className="hero-metric">
@@ -461,19 +621,14 @@ export default function Logger({ user, repName, onLogout }) {
         <span className="hero-label">TOTAL DOORS</span>
       </div>
 
-      {/* Secondary metrics */}
-      <div className="metrics-strip">
+      <div className="metrics-strip sub-metrics">
         <div className="metric-item">
-          <span className="metric-count" style={{ color: '#6b7280' }}>{totalNA}</span>
-          <span className="metric-label">N/A</span>
+          <span className="metric-count" style={{ color: '#10b981' }}>{totalSales}</span>
+          <span className="metric-label">SALE</span>
         </div>
         <div className="metric-item">
           <span className="metric-count" style={{ color: '#3b82f6' }}>{totalConvos}</span>
           <span className="metric-label">CONVO</span>
-        </div>
-        <div className="metric-item">
-          <span className="metric-count" style={{ color: '#10b981' }}>{totalSales}</span>
-          <span className="metric-label">SALE</span>
         </div>
         <div className="metric-item">
           <span className="metric-count" style={{ color: '#f59e0b' }}>{conversionRate}%</span>
@@ -481,22 +636,44 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
       </div>
 
-      {/* Outcome buttons or Objection picker */}
-      {showObjections ? (
+      {/* Outcomes / Objections / Callback Panel */}
+      {showCallbackPicker ? (
         <div className="objection-panel">
           <div className="objection-header">
-            <span>Select objection</span>
+            <span>Callback Time (Optional)</span>
+            <button className="objection-cancel" onClick={() => setShowCallbackPicker(false)}>x</button>
+          </div>
+          <div className="callback-picker-container">
+            <input 
+              type="datetime-local" 
+              className="callback-input"
+              value={callbackTime}
+              onChange={e => setCallbackTime(e.target.value)}
+            />
+            <button 
+              className="callback-confirm-btn"
+              disabled={logging}
+              onClick={() => logKnock('CONVO', 'CALLBACK', callbackTime)}
+            >
+              LOG CALLBACK
+            </button>
+          </div>
+        </div>
+      ) : showObjections ? (
+        <div className="objection-panel">
+          <div className="objection-header">
+            <span>Select Result</span>
             <button className="objection-cancel" onClick={() => setShowObjections(false)}>x</button>
           </div>
           <div className="objection-grid">
-            {OBJECTIONS.map(obj => (
+            {CONVO_OPTIONS.map(opt => (
               <button
-                key={obj}
-                className="objection-btn"
+                key={opt}
+                className={`objection-btn ${opt === 'CALLBACK' ? 'cb-highlight' : ''}`}
                 disabled={logging}
-                onClick={() => logKnock('CONVO', obj)}
+                onClick={() => handleConvoOption(opt)}
               >
-                {obj}
+                {opt}
               </button>
             ))}
           </div>
@@ -509,7 +686,7 @@ export default function Logger({ user, repName, onLogout }) {
               id={`btn-${o.key.toLowerCase()}`}
               className="outcome-btn"
               style={{ '--btn-color': o.color }}
-              disabled={logging || !street}
+              disabled={logging || !street || !houseNum}
               onClick={() => handleOutcome(o.key)}
             >
               <span className="outcome-label">{o.label}</span>
@@ -522,7 +699,7 @@ export default function Logger({ user, repName, onLogout }) {
       <div className="recent-logs">
         <h2 className="recent-title">Recent</h2>
         {events.length === 0 ? (
-          <p className="no-logs">No events logged yet. Set a street and start knocking.</p>
+          <p className="no-logs">No events logged yet. Set a street, house #, and start knocking.</p>
         ) : (
           <div className="log-list">
             {events.slice(0, 30).map(e => (
@@ -540,8 +717,14 @@ export default function Logger({ user, repName, onLogout }) {
                     }}>
                       {e.outcome_type.replace('_', ' ')}
                     </div>
-                    {e.objection_type && <div className="log-objection">{e.objection_type}</div>}
-                    <div className="log-street">{e.street_name}</div>
+                    {(e.objection_type || e.convo_status) && (
+                      <div className="log-objection">
+                        {e.convo_status === 'CALLBACK' && e.callback_time ? 
+                          `CB: ${new Date(e.callback_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : 
+                          (e.objection_type || e.convo_status)}
+                      </div>
+                    )}
+                    <div className="log-street">{e.house_number ? `${e.house_number} ` : ''}{e.street_name}</div>
                   </>
                 )}
                 <div className="log-time">
