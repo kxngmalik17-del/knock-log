@@ -42,6 +42,8 @@ export default function Auth() {
       });
       if (profileErr) {
         setError('Account created but profile failed: ' + profileErr.message);
+      } else if (!data.session) {
+        setError('Success! Please check your email to verify your account before logging in.');
       }
     }
     setLoading(false);
