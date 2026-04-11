@@ -40,7 +40,9 @@ export default function Logger({ user, repName, onLogout }) {
         .select('*')
         .eq('rep_id', user.id)
         .eq('session_date', today)
-        .single();
+        .order('start_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (sess) {
         setSession(sess);
@@ -95,6 +97,9 @@ export default function Logger({ user, repName, onLogout }) {
       return;
     }
     setSession(data);
+    setEvents([]);
+    setStreet('');
+    setStreetInput('');
     setDayState('ACTIVE');
   }
 
@@ -351,6 +356,13 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
 
         <div className="profile-dropdown" style={{ marginTop: 16 }}>
+          <button 
+            className="start-new-session-btn" 
+            onClick={startDay} 
+            style={{ marginBottom: 12, width: '100%', padding: '12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+          >
+            START ANOTHER SESSION
+          </button>
           <p className="profile-email">{user.email}</p>
           <button id="logout-btn" className="logout-btn" onClick={onLogout}>
             Sign Out
@@ -404,20 +416,22 @@ export default function Logger({ user, repName, onLogout }) {
       )}
 
       {/* Street input */}
-      <div className="street-bar">
-        <input
-          type="text"
-          className="street-input"
-          placeholder="Enter street name..."
-          value={streetInput}
-          onChange={e => setStreetInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
-        />
-        <button className="street-set-btn" onClick={commitStreet}>SET</button>
-      </div>
-      {street && (
-        <div className="active-street">
-          {street}
+      {street ? (
+        <div className="active-street-container">
+          <div className="active-street">{street}</div>
+          <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); }}>END STREET</button>
+        </div>
+      ) : (
+        <div className="street-bar">
+          <input
+            type="text"
+            className="street-input"
+            placeholder="Enter street name..."
+            value={streetInput}
+            onChange={e => setStreetInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
+          />
+          <button className="street-set-btn" onClick={commitStreet}>START</button>
         </div>
       )}
 

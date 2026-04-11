@@ -544,17 +544,39 @@ body {
   transform: scale(0.97);
 }
 
-.active-street {
-  padding: 6px 12px;
+.active-street-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   background: rgba(99, 102, 241, 0.1);
   border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 8px;
+  padding: 6px 6px 6px 12px;
+  margin-bottom: 14px;
+}
+
+.active-street {
   color: var(--accent);
   font-size: 12px;
   font-weight: 700;
-  margin-bottom: 14px;
   letter-spacing: 0.3px;
   text-transform: uppercase;
+}
+
+.end-street-btn {
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border: none;
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+
+.end-street-btn:active {
+  background: rgba(239, 68, 68, 0.3);
 }
 
 /* ========================================

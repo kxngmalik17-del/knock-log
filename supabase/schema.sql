@@ -18,8 +18,7 @@ create table if not exists public.day_sessions (
   session_date date not null default current_date,
   start_time timestamp with time zone default now(),
   end_time timestamp with time zone,
-  status text not null default 'OPEN' check (status in ('OPEN', 'CLOSED')),
-  unique (rep_id, session_date)
+  status text not null default 'OPEN' check (status in ('OPEN', 'CLOSED'))
 );
 
 -- 3. Knock events (immutable)
