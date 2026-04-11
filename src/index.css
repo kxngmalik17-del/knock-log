@@ -96,13 +96,6 @@ body {
   margin-bottom: 32px;
 }
 
-.logo-icon {
-  font-size: 48px;
-  display: block;
-  margin-bottom: 8px;
-  filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.3));
-}
-
 .auth-logo h1 {
   font-size: 32px;
   font-weight: 800;
@@ -452,10 +445,6 @@ body {
 
 .outcome-btn:disabled {
   opacity: 0.5;
-}
-
-.outcome-emoji {
-  font-size: 32px;
 }
 
 .outcome-label {

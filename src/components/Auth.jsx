@@ -51,7 +51,6 @@ export default function Auth() {
     <div className="auth-container">
       <div className="auth-card">
         <div className="auth-logo">
-          <span className="logo-icon">🚪</span>
           <h1>KnockLog</h1>
           <p className="auth-subtitle">Door Knock Logger</p>
         </div>

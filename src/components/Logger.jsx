@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 
 const OUTCOMES = [
-  { key: 'NO ANSWER', color: '#6b7280', emoji: '🚫' },
-  { key: 'CONVO', color: '#3b82f6', emoji: '💬' },
-  { key: 'QUOTE', color: '#f59e0b', emoji: '📋' },
-  { key: 'SALE', color: '#10b981', emoji: '🎉' },
+  { key: 'NO ANSWER', color: '#6b7280' },
+  { key: 'CONVO', color: '#3b82f6' },
+  { key: 'QUOTE', color: '#f59e0b' },
+  { key: 'SALE', color: '#10b981' },
 ];
 
 const OBJECTIONS = [
@@ -174,7 +174,6 @@ export default function Logger({ user, repName, onLogout }) {
               disabled={logging}
               onClick={() => handleOutcome(o.key)}
             >
-              <span className="outcome-emoji">{o.emoji}</span>
               <span className="outcome-label">{o.key}</span>
             </button>
           ))}
@@ -193,7 +192,7 @@ export default function Logger({ user, repName, onLogout }) {
                 <div className="log-outcome" style={{
                   color: OUTCOMES.find(o => o.key === k.outcome)?.color || '#fff'
                 }}>
-                  {OUTCOMES.find(o => o.key === k.outcome)?.emoji} {k.outcome}
+                  {k.outcome}
                 </div>
                 {k.objection && <div className="log-objection">{k.objection}</div>}
                 <div className="log-time">
