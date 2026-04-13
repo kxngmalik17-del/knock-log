@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { sqlocal, insertLocalEvent } from '../lib/db';
+import { syncEngine } from '../lib/syncEngine';
 
 const OUTCOMES = [
   { key: 'NO_ANSWER', label: 'NO ANSWER', color: '#6b7280' },
@@ -18,21 +20,22 @@ const CONVO_OPTIONS = [
   'NOT CONVINCED'
 ];
 
-// States: NOT_STARTED | ACTIVE | ON_BREAK | CLOSED
 export default function Logger({ user, repName, onLogout }) {
   const [dayState, setDayState] = useState('NOT_STARTED');
   const [session, setSession] = useState(null);
   const [street, setStreet] = useState('');
   const [streetInput, setStreetInput] = useState('');
+  const [streetSuggestions, setStreetSuggestions] = useState([]);
+  const [streetCoords, setStreetCoords] = useState(null);
   
-  // House Cursor State
+  const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
   const [houseNum, setHouseNum] = useState('');
   const [stepSize, setStepSize] = useState(2);
 
   const [events, setEvents] = useState([]);
   const [activeBreak, setActiveBreak] = useState(null);
   
-  // UI Panels State
   const [showObjections, setShowObjections] = useState(false);
   const [showCallbackPicker, setShowCallbackPicker] = useState(false);
   const [callbackTime, setCallbackTime] = useState('');
@@ -43,109 +46,131 @@ export default function Logger({ user, repName, onLogout }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // ─── Bootstrap: check for existing open session today ───
-  useEffect(() => {
-    async function bootstrap() {
-      const today = new Date().toISOString().split('T')[0];
-      const { data: sess } = await supabase
-        .from('day_sessions')
-        .select('*')
-        .eq('rep_id', user.id)
-        .eq('session_date', today)
-        .order('start_time', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+  // Sync Observability
+  const [unsyncedCount, setUnsyncedCount] = useState(0);
 
-      if (sess) {
-        setSession(sess);
-        if (sess.status === 'CLOSED') {
-          setDayState('CLOSED');
-        } else {
-          setDayState('ACTIVE');
-          // Check for active break
-          const { data: brk } = await supabase
-            .from('break_sessions')
-            .select('*')
-            .eq('session_id', sess.id)
-            .is('break_end_time', null)
-            .single();
-          if (brk) {
-            setActiveBreak(brk);
-            setDayState('ON_BREAK');
+  // Silent geolocation capture (zero friction)
+  const geoRef = useRef({ lat: null, lng: null });
+  const watchIdRef = useRef(null);
+
+  useEffect(() => {
+    syncEngine.setUserId(user.id);
+    syncEngine.start();
+
+    async function bootstrapLocal() {
+      try {
+        const rs = await sqlocal.sql`SELECT * FROM events ORDER BY created_at ASC`;
+        let sess = null;
+        let dState = 'NOT_STARTED';
+        let aBreak = null;
+        let evts = [];
+
+        // Rebuild state entirely from local append-only event log
+        for (let row of rs) {
+          const payload = JSON.parse(row.payload);
+          if (row.type === 'DAY_START') {
+            const today = new Date().toISOString().split('T')[0];
+            if (payload.session_date === today) {
+              sess = payload;
+              dState = 'ACTIVE';
+              evts = [];
+            }
+          } else if (row.type === 'DAY_END' && sess && payload.session_id === sess.session_id) {
+            sess.status = 'CLOSED';
+            sess.export_status = payload.export_status;
+            sess.export_url = payload.export_url;
+            dState = 'CLOSED';
+          } else if (row.type === 'KNOCK' && sess && payload.session_id === sess.session_id) {
+            evts.push({ id: payload.event_id, type: 'KNOCK', ...payload });
+          } else if (row.type === 'BREAK_START' && sess && payload.session_id === sess.session_id) {
+            aBreak = payload;
+            dState = 'ON_BREAK';
+            evts.push({ id: payload.break_id, type: 'BREAK', timestamp: payload.break_start_time });
+          } else if (row.type === 'BREAK_END' && sess && payload.session_id === sess.session_id) {
+            if (aBreak && aBreak.break_id === payload.break_id) {
+              aBreak = null;
+              dState = 'ACTIVE';
+              const idx = evts.findIndex(e => e.type === 'BREAK' && e.id === payload.break_id);
+              if (idx > -1) evts[idx].duration = payload.duration;
+            }
           }
         }
-        await fetchEvents(sess.id);
+
+        setSession(sess);
+        setDayState(dState);
+        setActiveBreak(aBreak);
+        setEvents(evts.reverse());
+      } catch (e) {
+        console.error("Local bootstrap failed:", e);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
-    bootstrap();
+    
+    bootstrapLocal();
+
+    const updateSyncStatus = async () => {
+      try {
+        const rs = await sqlocal.sql`SELECT COUNT(*) as count FROM events WHERE synced = 0`;
+        if (rs && rs[0]) setUnsyncedCount(rs[0].count);
+      } catch(e) {}
+    };
+
+    const unsub = syncEngine.subscribe(updateSyncStatus);
+    const id = setInterval(updateSyncStatus, 3000);
+    updateSyncStatus();
+
+    // Start passive geolocation tracking
+    if ('geolocation' in navigator) {
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (pos) => {
+          geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        },
+        () => { /* silently ignore denied/timeout */ },
+        { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
+      );
+    }
+
+    return () => { 
+      unsub(); 
+      clearInterval(id);
+      syncEngine.stop();
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
   }, [user.id]);
 
-  // ─── Fetch events for session ───
-  const fetchEvents = useCallback(async (sessionId) => {
-    const { data: knocks, error: errK } = await supabase
-      .from('knock_events')
-      .select('*')
-      .eq('session_id', sessionId);
-      
-    const { data: breaks, error: errB } = await supabase
-      .from('break_sessions')
-      .select('*')
-      .eq('session_id', sessionId);
-
-    if (errK || errB) {
-      setError('Failed to load events');
-      return;
-    }
-
-    const combined = [];
-    (knocks || []).forEach(k => combined.push({ ...k, type: 'KNOCK' }));
-    (breaks || []).forEach(b => {
-      combined.push({
-        id: b.id,
-        type: 'BREAK',
-        timestamp: b.break_start_time,
-        duration: b.duration
-      });
-    });
-
-    combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    setEvents(combined);
-  }, []);
-
-  // ─── START DAY ───
   async function startDay() {
     setError('');
+    const sessionId = crypto.randomUUID();
     const today = new Date().toISOString().split('T')[0];
-    const { data, error: err } = await supabase
-      .from('day_sessions')
-      .insert({ rep_id: user.id, session_date: today })
-      .select()
-      .single();
-    if (err) {
-      setError('Failed to start day: ' + err.message);
-      return;
-    }
-    setSession(data);
+    const payload = {
+      session_id: sessionId,
+      session_date: today,
+      start_time: new Date().toISOString()
+    };
+    
+    await insertLocalEvent(crypto.randomUUID(), 'DAY_START', payload);
+    
+    setSession(payload);
     setEvents([]);
     setStreet('');
     setStreetInput('');
+    setStreetCoords(null);
     setHouseNum('');
     setDayState('ACTIVE');
   }
 
-  // ─── END DAY ───
   async function endDay() {
     if (!session) return;
     setLogging(true);
     setError('');
 
-    // 1. Generate CSV
     const rows = [
       ['Date', 'Time', 'Street', 'House Number', 'Outcome', 'Status/Objection', 'Callback Time']
     ];
     
-    // Sort events historically for export
     const historicalEvents = [...events].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
     historicalEvents.forEach(e => {
@@ -177,47 +202,37 @@ export default function Logger({ user, repName, onLogout }) {
     const csvContent = rows.map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     
-    // 2. Upload to storage
     const dateStr = new Date().toISOString().split('T')[0];
-    const fileName = `${user.id}/${session.id}_${dateStr}.csv`;
+    const fileName = `${user.id}/${session.session_id}_${dateStr}.csv`;
     
     let exportUrl = null;
     let exportStatus = 'FAILED';
-    const { data: uploadData, error: uploadErr } = await supabase.storage
-      .from('exports')
-      .upload(fileName, blob, { upsert: true });
-      
-    if (!uploadErr && uploadData) {
-      exportStatus = 'COMPLETE';
-      exportUrl = fileName;
-    } else {
-      console.error("Export upload failed. You may need to verify Bucket permissions.", uploadErr);
+
+    if (navigator.onLine) {
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('exports')
+        .upload(fileName, blob, { upsert: true });
+        
+      if (!uploadErr && uploadData) {
+        exportStatus = 'COMPLETE';
+        exportUrl = fileName;
+      }
     }
 
-    // 3. Close Session in DB
-    const { error: err } = await supabase
-      .from('day_sessions')
-      .update({ 
-        status: 'CLOSED', 
-        end_time: new Date().toISOString(),
-        export_status: exportStatus,
-        export_url: exportUrl
-      })
-      .eq('id', session.id);
+    const payload = {
+      session_id: session.session_id,
+      end_time: new Date().toISOString(),
+      export_status: exportStatus,
+      export_url: exportUrl
+    };
 
-    if (err) {
-      setError('Failed to end day: ' + err.message);
-      setLogging(false);
-      return;
-    }
-    
-    // 4. Update local state
+    await insertLocalEvent(crypto.randomUUID(), 'DAY_END', payload);
+
     setSession({ ...session, status: 'CLOSED', export_status: exportStatus, export_url: exportUrl });
     setDayState('CLOSED');
     setLogging(false);
   }
 
-  // ─── DOWNLOAD CSV ───
   async function downloadCsv() {
     if (!session?.export_url) return;
     const { data, error: err } = await supabase.storage.from('exports').download(session.export_url);
@@ -235,14 +250,39 @@ export default function Logger({ user, repName, onLogout }) {
     }
   }
 
-  // ─── SET STREET ───
+  const handleStreetInputChange = async (e) => {
+    const val = e.target.value;
+    setStreetInput(val);
+    
+    if (val.trim().length > 2) {
+      try {
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=4`);
+        const data = await res.json();
+        setStreetSuggestions(data.features || []);
+      } catch (err) {
+        setStreetSuggestions([]);
+      }
+    } else {
+      setStreetSuggestions([]);
+    }
+  };
+
+  const selectStreetSuggestion = (feature) => {
+    const name = feature.text || feature.place_name?.split(',')[0] || ''; 
+    setStreetInput(name);
+    if (feature.center) {
+      setStreetCoords({ lng: feature.center[0], lat: feature.center[1] });
+    }
+    setStreetSuggestions([]);
+  };
+
   function commitStreet() {
     const s = streetInput.trim();
     if (!s) return;
     setStreet(s);
+    setStreetSuggestions([]);
   }
 
-  // ─── LOG KNOCK EVENT ───
   async function logKnock(outcomeType, convoOpt = null, cbTime = null) {
     if (dayState !== 'ACTIVE') return;
     if (!street || !houseNum) {
@@ -269,24 +309,46 @@ export default function Logger({ user, repName, onLogout }) {
       cbFinal = null;
     }
 
-    const { error: err } = await supabase.from('knock_events').insert({
-      rep_id: user.id,
-      session_id: session.id,
+    const eventId = crypto.randomUUID();
+    const payload = {
+      event_id: eventId,
+      session_id: session.session_id,
       street_name: street,
       house_number: houseNum,
+      timestamp: new Date().toISOString(),
       outcome_type: outcomeType,
       convo_status: cStatus,
       objection_type: oType,
       callback_time: cbFinal,
-    });
+      lat: geoRef.current.lat || streetCoords?.lat,
+      lng: geoRef.current.lng || streetCoords?.lng,
+    };
 
-    if (err) {
-      setError('Failed to log: ' + err.message);
-      setLogging(false);
-      return;
+    // LOCAL WRITE GUARANTEE (Appends instantly regardless of network)
+    await insertLocalEvent(eventId, 'KNOCK', payload);
+
+    // BACKGROUND ROOFTOP GEOCODING (Tags the specific house property perfectly on the map)
+    if (navigator.onLine) {
+      setTimeout(async () => {
+        try {
+          const query = `${houseNum} ${street}`;
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1`);
+          const data = await res.json();
+          if (data.features?.length > 0) {
+            const updatedPayload = { 
+              ...payload, 
+              lat: data.features[0].center[1], // new exact rooftop lat
+              lng: data.features[0].center[0]  // new exact rooftop lng
+            };
+            await sqlocal.sql`UPDATE events SET payload = ${JSON.stringify(updatedPayload)} WHERE event_id = ${eventId}`;
+          }
+        } catch (e) {
+          // Fail silently; local DB retains the GPS/St center fallback
+        }
+      }, 0);
     }
 
-    // Auto-increment house number safely
+    // Apply safely to UI
     const numPart = houseNum.match(/\d+/);
     if (numPart) {
       const num = parseInt(numPart[0], 10);
@@ -297,12 +359,13 @@ export default function Logger({ user, repName, onLogout }) {
     setFlashOutcome(outcomeType);
     setTimeout(() => setFlashOutcome(null), 600);
     
-    // Reset panels
     setShowObjections(false);
     setShowCallbackPicker(false);
     setCallbackTime('');
     setLogging(false);
-    fetchEvents(session.id);
+    
+    // Unshift into events to maintain reverse chronology
+    setEvents(prev => [{ id: eventId, type: 'KNOCK', ...payload }, ...prev]);
   }
 
   function handleOutcome(outcomeType) {
@@ -321,21 +384,18 @@ export default function Logger({ user, repName, onLogout }) {
     }
   }
 
-  // ─── BREAK TOGGLE ───
   async function startBreak() {
     if (!session) return;
-    const { data, error: err } = await supabase
-      .from('break_sessions')
-      .insert({ rep_id: user.id, session_id: session.id })
-      .select()
-      .single();
-    if (err) {
-      setError('Failed to start break: ' + err.message);
-      return;
-    }
-    setActiveBreak(data);
+    const breakId = crypto.randomUUID();
+    const payload = {
+      break_id: breakId,
+      session_id: session.session_id,
+      break_start_time: new Date().toISOString()
+    };
+    await insertLocalEvent(crypto.randomUUID(), 'BREAK_START', payload);
+    setActiveBreak(payload);
     setDayState('ON_BREAK');
-    fetchEvents(session.id);
+    setEvents(prev => [{ id: breakId, type: 'BREAK', timestamp: payload.break_start_time }, ...prev]);
   }
 
   async function endBreak() {
@@ -344,29 +404,32 @@ export default function Logger({ user, repName, onLogout }) {
     const start = new Date(activeBreak.break_start_time);
     const durationSec = Math.round((now - start) / 1000);
 
-    const { error: err } = await supabase
-      .from('break_sessions')
-      .update({
-        break_end_time: now.toISOString(),
-        duration: durationSec,
-      })
-      .eq('id', activeBreak.id);
-    if (err) {
-      setError('Failed to end break: ' + err.message);
-      return;
-    }
+    const payload = {
+      break_id: activeBreak.break_id,
+      session_id: session.session_id,
+      break_end_time: now.toISOString(),
+      duration: durationSec
+    };
+
+    await insertLocalEvent(crypto.randomUUID(), 'BREAK_END', payload);
+    
     setActiveBreak(null);
     setDayState('ACTIVE');
-    fetchEvents(activeBreak.session_id);
+    
+    // Update local UI
+    setEvents(prev => prev.map(e => {
+      if (e.type === 'BREAK' && e.id === activeBreak.break_id) {
+        return { ...e, duration: durationSec };
+      }
+      return e;
+    }));
   }
 
-  // ─── DERIVED METRICS ───
   const totalDoors = events.filter(e => e.type === 'KNOCK').length;
   const totalConvos = events.filter(e => e.outcome_type === 'CONVO').length;
   const totalSales = events.filter(e => e.outcome_type === 'SALE').length;
   const conversionRate = totalDoors > 0 ? ((totalSales / totalDoors) * 100).toFixed(1) : '0.0';
 
-  // ─── LOADING ───
   if (loading) {
     return (
       <div className="loading-screen">
@@ -376,12 +439,16 @@ export default function Logger({ user, repName, onLogout }) {
     );
   }
 
-  // ═══════════════════════════════════════
-  //  STATE: NOT_STARTED
-  // ═══════════════════════════════════════
+  const SyncIndicator = () => (
+    <div style={{ position: 'fixed', bottom: 74, right: 10, background: '#1f2937', color: unsyncedCount > 0 ? '#f59e0b' : '#10b981', padding: '4px 8px', borderRadius: 4, fontSize: '10px', zIndex: 999 }}>
+      {unsyncedCount > 0 ? `Syncing ${unsyncedCount} events...` : 'Synced'}
+    </div>
+  );
+
   if (dayState === 'NOT_STARTED') {
     return (
       <div className="logger-container">
+        <SyncIndicator />
         <header className="logger-header">
           <div className="header-left">
             <h1 className="app-title">KnockLog</h1>
@@ -409,7 +476,7 @@ export default function Logger({ user, repName, onLogout }) {
         <div className="start-day-screen">
           <div className="start-day-icon">K</div>
           <h2 className="start-day-title">Ready to knock?</h2>
-          <p className="start-day-sub">Start your day session to begin logging doors.</p>
+          <p className="start-day-sub">Your events are securely saved offline.</p>
           <button className="start-day-btn" onClick={startDay}>
             START DAY
           </button>
@@ -418,12 +485,10 @@ export default function Logger({ user, repName, onLogout }) {
     );
   }
 
-  // ═══════════════════════════════════════
-  //  STATE: ON_BREAK
-  // ═══════════════════════════════════════
   if (dayState === 'ON_BREAK') {
     return (
       <div className="logger-container">
+        <SyncIndicator />
         <header className="logger-header">
           <div className="header-left">
             <h1 className="app-title">KnockLog</h1>
@@ -453,11 +518,7 @@ export default function Logger({ user, repName, onLogout }) {
     );
   }
 
-  // ═══════════════════════════════════════
-  //  STATE: CLOSED
-  // ═══════════════════════════════════════
   if (dayState === 'CLOSED') {
-    // Street breakdown
     const streetMap = {};
     events.filter(e => e.type === 'KNOCK').forEach(e => {
       if (!streetMap[e.street_name]) streetMap[e.street_name] = { doors: 0, sales: 0, convos: 0 };
@@ -468,6 +529,7 @@ export default function Logger({ user, repName, onLogout }) {
 
     return (
       <div className="logger-container">
+        <SyncIndicator />
         <header className="logger-header">
           <div className="header-left">
             <h1 className="app-title">KnockLog</h1>
@@ -532,19 +594,15 @@ export default function Logger({ user, repName, onLogout }) {
     );
   }
 
-  // ═══════════════════════════════════════
-  //  STATE: ACTIVE (main logging screen)
-  // ═══════════════════════════════════════
   return (
     <div className="logger-container">
-      {/* Flash overlay */}
+      <SyncIndicator />
       {flashOutcome && (
         <div className="flash-overlay" key={flashOutcome + Date.now()}>
           <span>LOGGED</span>
         </div>
       )}
 
-      {/* Header */}
       <header className="logger-header">
         <div className="header-left">
           <h1 className="app-title">KnockLog</h1>
@@ -560,7 +618,6 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
       </header>
 
-      {/* Profile dropdown */}
       {showProfile && (
         <div className="profile-dropdown">
           <p className="profile-email">{user.email}</p>
@@ -570,20 +627,18 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
       )}
 
-      {/* Error bar */}
       {error && (
         <div className="error-bar" onClick={() => setError('')}>
           {error} <span className="error-dismiss">x</span>
         </div>
       )}
 
-      {/* Location / Cursor Box */}
       <div className="location-panel">
         {street ? (
           <>
             <div className="active-street-container">
               <div className="active-street">{street}</div>
-              <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); }}>END STREET</button>
+              <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); setStreetCoords(null); }}>END STREET</button>
             </div>
             
             <div className="house-cursor-bar">
@@ -601,21 +656,45 @@ export default function Logger({ user, repName, onLogout }) {
             </div>
           </>
         ) : (
-          <div className="street-bar">
+          <div className="street-bar" style={{ position: 'relative' }}>
             <input
               type="text"
               className="street-input"
               placeholder="Enter street name..."
               value={streetInput}
-              onChange={e => setStreetInput(e.target.value)}
+              onChange={handleStreetInputChange}
               onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
             />
             <button className="street-set-btn" onClick={commitStreet}>START</button>
+            
+            {streetSuggestions.length > 0 && (
+              <div className="autocomplete-dropdown" style={{
+                position: 'absolute', top: '100%', left: 0, right: '70px',
+                background: 'var(--bg-card)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '8px',
+                zIndex: 100, marginTop: '4px', overflow: 'hidden',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+              }}>
+                {streetSuggestions.map(f => (
+                  <div 
+                    key={f.id} 
+                    onClick={() => selectStreetSuggestion(f)}
+                    style={{
+                      padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      fontSize: '13px', cursor: 'pointer', color: 'var(--text-primary)'
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>{f.text}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{f.place_name}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* HERO: Total Doors */}
       <div className="hero-metric">
         <span className="hero-count">{totalDoors}</span>
         <span className="hero-label">TOTAL DOORS</span>
@@ -636,7 +715,6 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
       </div>
 
-      {/* Outcomes / Objections / Callback Panel */}
       {showCallbackPicker ? (
         <div className="objection-panel">
           <div className="objection-header">
@@ -695,7 +773,6 @@ export default function Logger({ user, repName, onLogout }) {
         </div>
       )}
 
-      {/* Recent events */}
       <div className="recent-logs">
         <h2 className="recent-title">Recent</h2>
         {events.length === 0 ? (
@@ -739,7 +816,6 @@ export default function Logger({ user, repName, onLogout }) {
   );
 }
 
-// ─── Break Timer Component ───
 function BreakTimer({ start }) {
   const [elapsed, setElapsed] = useState('0:00');
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import Auth from './components/Auth';
-import Logger from './components/Logger';
+import MainLayout from './components/MainLayout';
 import './index.css';
 
 export default function App() {
@@ -61,7 +61,7 @@ export default function App() {
   }
 
   return (
-    <Logger
+    <MainLayout
       user={session.user}
       repName={repName}
       onLogout={handleLogout}
