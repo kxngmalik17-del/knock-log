@@ -17,16 +17,70 @@ function makePropertyId(address) {
   return 'prop_' + Math.abs(hash).toString(36);
 }
 
+function buildGeoJSONFromKnocks(knocks) {
+  const propMap = {};
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  for (const row of knocks) {
+    const p = row.payload ? JSON.parse(row.payload) : row; // handle both sqlocal rows and raw payload objects
+    const address = `${p.house_number || ''} ${p.street_name || ''}`.trim();
+    if (!address) continue;
+    if (!p.lat || !p.lng) continue; // Must have coordinates to map
+
+    const pid = makePropertyId(address.toLowerCase());
+    
+    // Determine the resolved status for the pin color
+    let resolvedStatus = p.outcome_type || 'NO_ANSWER';
+    if (p.outcome_type === 'CONVO') {
+      if (p.convo_status === 'CALLBACK' || p.objection_type === 'CALLBACK') {
+        resolvedStatus = 'CALLBACK';
+      } else if (p.objection_type === 'NOT INTERESTED') {
+        resolvedStatus = 'NOT_INTERESTED';
+      } else if (p.objection_type === 'NEED TO THINK' || p.objection_type === 'NOT DECISION MAKER') {
+        resolvedStatus = 'THINKING';
+      } else {
+        resolvedStatus = 'CONVO';
+      }
+    }
+
+    propMap[pid] = {
+      property_id: pid,
+      address,
+      lat: p.lat,
+      lng: p.lng,
+      last_status: resolvedStatus,
+      last_knocked_at: p.timestamp || row.created_at,
+      knocked_today: (p.timestamp || row.created_at || '').startsWith(todayStr) ? 1 : 0,
+    };
+  }
+
+  return {
+    type: 'FeatureCollection',
+    features: Object.values(propMap).map(p => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [p.lng, p.lat]
+      },
+      properties: {
+        property_id: p.property_id,
+        address: p.address,
+        last_status: p.last_status,
+        last_knocked_at: p.last_knocked_at,
+        knocked_today: p.knocked_today
+      }
+    }))
+  };
+}
+
+
 /**
  * Scans all KNOCK events from local SQLite and upserts into the properties table.
  * This is idempotent — safe to call repeatedly.
  */
 export async function derivePropertiesFromEvents() {
   const rs = await sqlocal.sql`SELECT * FROM events WHERE type = 'KNOCK' ORDER BY created_at ASC`;
-
   const todayStr = new Date().toISOString().split('T')[0];
-  
-  // Build a map of address -> latest property state
   const propMap = {};
   
   for (const row of rs) {
@@ -36,7 +90,6 @@ export async function derivePropertiesFromEvents() {
 
     const pid = makePropertyId(address.toLowerCase());
     
-    // Determine the resolved status for the pin color
     let resolvedStatus = p.outcome_type || 'NO_ANSWER';
     if (p.outcome_type === 'CONVO') {
       if (p.convo_status === 'CALLBACK' || p.objection_type === 'CALLBACK') {
@@ -65,7 +118,6 @@ export async function derivePropertiesFromEvents() {
     };
   }
 
-  // Batch upsert to properties table
   for (const prop of Object.values(propMap)) {
     await upsertProperty(prop);
   }
@@ -73,7 +125,6 @@ export async function derivePropertiesFromEvents() {
 
 /**
  * Returns all geo-located properties as a GeoJSON FeatureCollection
- * ready for Mapbox GL JS consumption.
  */
 export async function getPropertiesAsGeoJSON() {
   const props = await getAllProperties();
@@ -96,4 +147,27 @@ export async function getPropertiesAsGeoJSON() {
       }
     }))
   };
+}
+
+export async function getActiveSessionGeoJSON() {
+  const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
+  if (rsStart.length === 0) return { type: 'FeatureCollection', features: [] };
+  
+  const sessData = JSON.parse(rsStart[0].payload);
+  const sessionId = sessData.session_id;
+
+  const rsEnd = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_END'`;
+  const ends = rsEnd.filter(r => JSON.parse(r.payload).session_id === sessionId);
+  if (ends.length > 0) return { type: 'FeatureCollection', features: [] }; // Session closed
+
+  const knocksRs = await sqlocal.sql`SELECT payload, created_at FROM events WHERE type = 'KNOCK'`;
+  const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessionId);
+  
+  return buildGeoJSONFromKnocks(knocks);
+}
+
+export async function getSessionGeoJSON(sessionId) {
+  const knocksRs = await sqlocal.sql`SELECT payload, created_at FROM events WHERE type = 'KNOCK'`;
+  const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessionId);
+  return buildGeoJSONFromKnocks(knocks);
 }

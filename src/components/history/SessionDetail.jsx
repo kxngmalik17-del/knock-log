@@ -1,4 +1,5 @@
 import React from 'react';
+import SessionMap from './SessionMap';
 
 const OUTCOME_COLORS = {
   'NO_ANSWER': '#6b7280',
@@ -103,6 +104,8 @@ export default function SessionDetail({ session, onBack, user }) {
           Duration: {durationText} {session.status === 'ACTIVE' && <span style={{ color: '#10b981' }}>•</span>}
         </div>
       </div>
+
+      <SessionMap events={session.events} />
 
       <div className="timeline">
         <h3 className="timeline-title">Activity Timeline</h3>

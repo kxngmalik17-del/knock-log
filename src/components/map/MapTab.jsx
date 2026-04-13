@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { derivePropertiesFromEvents, getPropertiesAsGeoJSON } from '../../lib/propertyService';
+import { getActiveSessionGeoJSON } from '../../lib/propertyService';
 import { sqlocal } from '../../lib/db';
 import '../mapStyles.css';
 
@@ -122,7 +122,7 @@ export default function MapTab({ user, isActive }) {
         }
       });
 
-      map.on('click', 'unclustered-point', (e) => {
+      const handlePinClick = (e) => {
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
         const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
@@ -138,10 +138,18 @@ export default function MapTab({ user, isActive }) {
             <div class="popup-time">${timeStr}</div>
           `)
           .addTo(map);
-      });
+      };
 
-      map.on('mouseenter', 'unclustered-point', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'unclustered-point', () => { map.getCanvas().style.cursor = ''; });
+      map.on('click', 'unclustered-point', handlePinClick);
+      map.on('click', 'today-glow', handlePinClick);
+
+      const cursorPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
+      const cursorDefault = () => { map.getCanvas().style.cursor = ''; };
+
+      map.on('mouseenter', 'unclustered-point', cursorPointer);
+      map.on('mouseleave', 'unclustered-point', cursorDefault);
+      map.on('mouseenter', 'today-glow', cursorPointer);
+      map.on('mouseleave', 'today-glow', cursorDefault);
 
       mapRef.current = map;
       setMapReady(true);
@@ -153,20 +161,31 @@ export default function MapTab({ user, isActive }) {
   const refreshPins = useCallback(async () => {
     if (!mapRef.current || !mapReady) return;
     try {
-      const countResult = await sqlocal.sql`SELECT COUNT(*) as count FROM events WHERE type = 'KNOCK'`;
-      setTotalKnocks(countResult[0]?.count || 0);
-
-      await derivePropertiesFromEvents();
-      const geojson = await getPropertiesAsGeoJSON();
+      const geojson = await getActiveSessionGeoJSON();
+      
       const source = mapRef.current.getSource('properties');
       if (source) {
         source.setData(geojson);
         setPinCount(geojson.features.length);
       }
+      
+      // Update total knocks for the active session warning logic
+      const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
+      if (rsStart.length > 0) {
+        const sessData = JSON.parse(rsStart[0].payload);
+        const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK'`;
+        const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessData.session_id);
+        setTotalKnocks(knocks.length);
+      } else {
+        setTotalKnocks(0);
+      }
+      
     } catch (err) {
       console.error('[MapTab] Pin refresh error:', err);
     }
   }, [mapReady]);
+
+  // Rest of MapTab remains the same...
 
   useEffect(() => {
     if (!mapReady) return;
