@@ -23,6 +23,7 @@ export default function MapTab({ user, isActive }) {
   const [totalKnocks, setTotalKnocks] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [geoStatus, setGeoStatus] = useState('checking');
+  const [selectedPin, setSelectedPin] = useState(null);
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -129,21 +130,27 @@ export default function MapTab({ user, isActive }) {
         const timeStr = props.last_knocked_at
           ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
           : '';
-        const visitsHtml = props.visits > 1 ? `<div class="popup-visits" style="font-size:10px; color:#f59e0b; margin-top:2px;">Re-knocks: ${props.visits - 1} (${props.visits} total visits)</div>` : '';
 
-        new mapboxgl.Popup({ offset: 14, closeButton: true })
-          .setLngLat(coords)
-          .setHTML(`
-            <div class="popup-address">${props.address}</div>
-            <div class="popup-status ${props.last_status}">${statusLabel}</div>
-            ${visitsHtml}
-            <div class="popup-time">${timeStr}</div>
-          `)
-          .addTo(map);
+        map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
+
+        setSelectedPin({
+          ...props,
+          statusLabel,
+          timeStr,
+          visitsNum: props.visits || 1
+        });
       };
 
       map.on('click', 'unclustered-point', handlePinClick);
       map.on('click', 'today-glow', handlePinClick);
+
+      map.on('click', (e) => {
+        // Dismiss pin sheet if clicked on empty map space
+        const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point', 'today-glow'] });
+        if (!features.length) {
+          setSelectedPin(null);
+        }
+      });
 
       const cursorPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
       const cursorDefault = () => { map.getCanvas().style.cursor = ''; };
@@ -246,7 +253,7 @@ export default function MapTab({ user, isActive }) {
         </div>
       )}
 
-      <button className="map-recenter-btn" onClick={handleRecenter} title="Recenter">
+      <button className="map-recenter-btn" onClick={handleRecenter} title="Recenter" style={{ bottom: selectedPin ? 'calc(24px + 140px)' : '24px' }}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <circle cx="12" cy="12" r="3"></circle>
@@ -256,6 +263,39 @@ export default function MapTab({ user, isActive }) {
           <line x1="18" y1="12" x2="22" y2="12"></line>
         </svg>
       </button>
+
+      <div className={`pin-sheet-overlay ${selectedPin ? 'open' : ''}`}>
+        {selectedPin && (
+          <>
+            <div className="pin-sheet-header">
+              <div>
+                <div className="pin-sheet-address">{selectedPin.address}</div>
+              </div>
+              <button className="pin-sheet-close" onClick={() => setSelectedPin(null)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            
+            <div className="pin-sheet-status-row">
+              <div className="pin-sheet-status-badge" style={{
+                background: STATUS_COLORS[selectedPin.last_status] + '33',
+                color: STATUS_COLORS[selectedPin.last_status] || '#fff'
+              }}>
+                {selectedPin.statusLabel}
+              </div>
+              {selectedPin.visitsNum > 1 && (
+                <div className="pin-sheet-visits">
+                  {selectedPin.visitsNum - 1} Re-knocks ({selectedPin.visitsNum} visits)
+                </div>
+              )}
+            </div>
+            
+            <div className="pin-sheet-time">
+              Last knocked: {selectedPin.timeStr}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
