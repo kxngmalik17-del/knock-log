@@ -51,6 +51,7 @@ function buildGeoJSONFromKnocks(knocks) {
       last_status: resolvedStatus,
       last_knocked_at: p.timestamp || row.created_at,
       knocked_today: (p.timestamp || row.created_at || '').startsWith(todayStr) ? 1 : 0,
+      visits: (propMap[pid]?.visits || 0) + 1
     };
   }
 
@@ -67,7 +68,8 @@ function buildGeoJSONFromKnocks(knocks) {
         address: p.address,
         last_status: p.last_status,
         last_knocked_at: p.last_knocked_at,
-        knocked_today: p.knocked_today
+        knocked_today: p.knocked_today,
+        visits: p.visits
       }
     }))
   };

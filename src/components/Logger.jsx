@@ -425,10 +425,42 @@ export default function Logger({ user, repName, onLogout }) {
     }));
   }
 
-  const totalDoors = events.filter(e => e.type === 'KNOCK').length;
-  const totalConvos = events.filter(e => e.outcome_type === 'CONVO').length;
-  const totalSales = events.filter(e => e.outcome_type === 'SALE').length;
+  const propertyOutcomes = {};
+  [...events].reverse().forEach(e => {
+    if (e.type === 'KNOCK') {
+      const address = `${e.house_number || ''} ${e.street_name || ''}`.trim();
+      if (address) propertyOutcomes[address] = e.outcome_type;
+    }
+  });
+
+  const totalDoors = Object.keys(propertyOutcomes).length;
+  const totalConvos = Object.values(propertyOutcomes).filter(o => o === 'CONVO').length;
+  const totalSales = Object.values(propertyOutcomes).filter(o => o === 'SALE').length;
   const conversionRate = totalDoors > 0 ? ((totalSales / totalDoors) * 100).toFixed(1) : '0.0';
+
+  const isReknock = street && houseNum && events.some(e => 
+    e.type === 'KNOCK' && 
+    e.street_name === street && 
+    e.house_number === houseNum
+  );
+
+  const feedItems = [];
+  const feedAddressMap = new Map();
+  events.forEach(e => {
+    if (e.type === 'BREAK') {
+      feedItems.push(e);
+    } else if (e.type === 'KNOCK') {
+      const addr = `${e.house_number || ''} ${e.street_name || ''}`.trim();
+      if (feedAddressMap.has(addr)) {
+        const existingIdx = feedAddressMap.get(addr);
+        if (!feedItems[existingIdx].previousKnocks) feedItems[existingIdx].previousKnocks = [];
+        feedItems[existingIdx].previousKnocks.push(e);
+      } else {
+        feedItems.push({ ...e, previousKnocks: [] });
+        feedAddressMap.set(addr, feedItems.length - 1);
+      }
+    }
+  });
 
   if (loading) {
     return (
@@ -637,7 +669,10 @@ export default function Logger({ user, repName, onLogout }) {
         {street ? (
           <>
             <div className="active-street-container">
-              <div className="active-street">{street}</div>
+              <div className="active-street">
+                {street}
+                {isReknock && <span style={{ marginLeft: 8, fontSize: '0.65em', background: '#f59e0b', color: '#000', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>REKNOCK</span>}
+              </div>
               <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); setStreetCoords(null); }}>END STREET</button>
             </div>
             
@@ -779,7 +814,7 @@ export default function Logger({ user, repName, onLogout }) {
           <p className="no-logs">No events logged yet. Set a street, house #, and start knocking.</p>
         ) : (
           <div className="log-list">
-            {events.slice(0, 30).map(e => (
+            {feedItems.slice(0, 30).map(e => (
               <div className="log-item" key={e.id}>
                 {e.type === 'BREAK' ? (
                   <>
@@ -792,7 +827,13 @@ export default function Logger({ user, repName, onLogout }) {
                     <div className="log-outcome" style={{
                       color: OUTCOMES.find(o => o.key === e.outcome_type)?.color || '#fff'
                     }}>
+                      {e.previousKnocks?.length > 0 && (
+                        <span style={{ color: '#6b7280', marginRight: '4px', fontSize: '0.85em' }}>
+                          {e.previousKnocks[0].outcome_type.replace('_', ' ')} ➔ 
+                        </span>
+                      )}
                       {e.outcome_type.replace('_', ' ')}
+                      {e.previousKnocks?.length > 0 && <span style={{fontSize: '10px', marginLeft: 4, opacity: 0.6}}>({e.previousKnocks.length + 1} visits)</span>}
                     </div>
                     {(e.objection_type || e.convo_status) && (
                       <div className="log-objection">

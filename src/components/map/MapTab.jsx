@@ -129,12 +129,14 @@ export default function MapTab({ user, isActive }) {
         const timeStr = props.last_knocked_at
           ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
           : '';
+        const visitsHtml = props.visits > 1 ? `<div class="popup-visits" style="font-size:10px; color:#f59e0b; margin-top:2px;">Re-knocks: ${props.visits - 1} (${props.visits} total visits)</div>` : '';
 
         new mapboxgl.Popup({ offset: 14, closeButton: true })
           .setLngLat(coords)
           .setHTML(`
             <div class="popup-address">${props.address}</div>
             <div class="popup-status ${props.last_status}">${statusLabel}</div>
+            ${visitsHtml}
             <div class="popup-time">${timeStr}</div>
           `)
           .addTo(map);
@@ -175,7 +177,14 @@ export default function MapTab({ user, isActive }) {
         const sessData = JSON.parse(rsStart[0].payload);
         const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK'`;
         const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessData.session_id);
-        setTotalKnocks(knocks.length);
+        
+        const uniqueKeys = new Set();
+        knocks.forEach(r => {
+          const p = JSON.parse(r.payload);
+          const key = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
+          if (key) uniqueKeys.add(key);
+        });
+        setTotalKnocks(uniqueKeys.size);
       } else {
         setTotalKnocks(0);
       }
