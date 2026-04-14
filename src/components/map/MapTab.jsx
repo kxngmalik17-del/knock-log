@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { getActiveSessionGeoJSON } from '../../lib/propertyService';
+import { getTeamGeoJSON, getTodayStreetClaims, claimStreet, releaseStreetClaim } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import '../mapStyles.css';
 
@@ -16,14 +17,18 @@ const STATUS_COLORS = {
   'THINKING':       '#60a5fa',
 };
 
-export default function MapTab({ user, isActive }) {
+export default function MapTab({ user, repName, isActive }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const [pinCount, setPinCount] = useState(0);
+  const [teamPinCount, setTeamPinCount] = useState(0);
   const [totalKnocks, setTotalKnocks] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
+  const [mapView, setMapView] = useState('MY'); // 'MY' or 'TEAM'
+  const [streetClaims, setStreetClaims] = useState([]);
+  const [claimMessage, setClaimMessage] = useState(null);
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -73,6 +78,7 @@ export default function MapTab({ user, isActive }) {
     }
 
     map.on('load', () => {
+      // ── MY PINS SOURCE ──
       map.addSource('properties', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -123,7 +129,51 @@ export default function MapTab({ user, isActive }) {
         }
       });
 
-      const handlePinClick = (e) => {
+      // ── TEAM GHOST PINS SOURCE ──
+      map.addSource('team-properties', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'team-ghost-point',
+        type: 'circle',
+        source: 'team-properties',
+        paint: {
+          'circle-color': [
+            'match', ['get', 'last_status'],
+            'SALE', STATUS_COLORS.SALE,
+            'CONVO', STATUS_COLORS.CONVO,
+            'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
+            'CALLBACK', STATUS_COLORS.CALLBACK,
+            'THINKING', STATUS_COLORS.THINKING,
+            'NO_ANSWER', STATUS_COLORS.NO_ANSWER,
+            STATUS_COLORS.NO_ANSWER
+          ],
+          'circle-radius': 7,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': 'rgba(255,255,255,0.08)',
+          'circle-opacity': 0.3,
+        },
+        layout: { visibility: 'none' } // hidden by default (My View)
+      });
+
+      map.addLayer({
+        id: 'team-ghost-ring',
+        type: 'circle',
+        source: 'team-properties',
+        paint: {
+          'circle-radius': 12,
+          'circle-color': 'transparent',
+          'circle-stroke-width': 1,
+          'circle-stroke-color': 'rgba(255,255,255,0.06)',
+          'circle-stroke-opacity': 0.5,
+        },
+        layout: { visibility: 'none' }
+      });
+
+      // ── CLICK HANDLERS ──
+      const handleMyPinClick = (e) => {
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
         const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
@@ -137,16 +187,38 @@ export default function MapTab({ user, isActive }) {
           ...props,
           statusLabel,
           timeStr,
-          visitsNum: props.visits || 1
+          visitsNum: props.visits || 1,
+          isGhost: false,
         });
       };
 
-      map.on('click', 'unclustered-point', handlePinClick);
-      map.on('click', 'today-glow', handlePinClick);
+      const handleTeamPinClick = (e) => {
+        const props = e.features[0].properties;
+        const coords = e.features[0].geometry.coordinates.slice();
+        const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
+        const timeStr = props.last_knocked_at
+          ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : '';
+
+        map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
+
+        setSelectedPin({
+          ...props,
+          statusLabel,
+          timeStr,
+          visitsNum: 1,
+          isGhost: true,
+        });
+      };
+
+      map.on('click', 'unclustered-point', handleMyPinClick);
+      map.on('click', 'today-glow', handleMyPinClick);
+      map.on('click', 'team-ghost-point', handleTeamPinClick);
 
       map.on('click', (e) => {
-        // Dismiss pin sheet if clicked on empty map space
-        const features = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point', 'today-glow'] });
+        const features = map.queryRenderedFeatures(e.point, {
+          layers: ['unclustered-point', 'today-glow', 'team-ghost-point']
+        });
         if (!features.length) {
           setSelectedPin(null);
         }
@@ -159,6 +231,8 @@ export default function MapTab({ user, isActive }) {
       map.on('mouseleave', 'unclustered-point', cursorDefault);
       map.on('mouseenter', 'today-glow', cursorPointer);
       map.on('mouseleave', 'today-glow', cursorDefault);
+      map.on('mouseenter', 'team-ghost-point', cursorPointer);
+      map.on('mouseleave', 'team-ghost-point', cursorDefault);
 
       mapRef.current = map;
       setMapReady(true);
@@ -167,6 +241,15 @@ export default function MapTab({ user, isActive }) {
     return () => map.remove();
   }, []);
 
+  // ── Toggle Ghost Layer Visibility ──
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const visibility = mapView === 'TEAM' ? 'visible' : 'none';
+    mapRef.current.setLayoutProperty('team-ghost-point', 'visibility', visibility);
+    mapRef.current.setLayoutProperty('team-ghost-ring', 'visibility', visibility);
+  }, [mapView, mapReady]);
+
+  // ── Refresh Pins ──
   const refreshPins = useCallback(async () => {
     if (!mapRef.current || !mapReady) return;
     try {
@@ -195,13 +278,24 @@ export default function MapTab({ user, isActive }) {
       } else {
         setTotalKnocks(0);
       }
-      
+
+      // Fetch team data
+      if (navigator.onLine && user?.id) {
+        const teamGeo = await getTeamGeoJSON(user.id);
+        const teamSource = mapRef.current.getSource('team-properties');
+        if (teamSource) {
+          teamSource.setData(teamGeo);
+          setTeamPinCount(teamGeo.features.length);
+        }
+
+        const claims = await getTodayStreetClaims();
+        setStreetClaims(claims);
+      }
+
     } catch (err) {
       console.error('[MapTab] Pin refresh error:', err);
     }
-  }, [mapReady]);
-
-  // Rest of MapTab remains the same...
+  }, [mapReady, user?.id]);
 
   useEffect(() => {
     if (!mapReady) return;
@@ -222,20 +316,148 @@ export default function MapTab({ user, isActive }) {
     }
   }
 
+  async function handleClaimCurrentStreet() {
+    // Read current street from the Logger's active session
+    const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
+    if (rsStart.length === 0) {
+      showClaimMessage('Start a session first.', 'error');
+      return;
+    }
+
+    // Find the most recent knock to determine the active street
+    const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK' ORDER BY created_at DESC LIMIT 1`;
+    if (knocksRs.length === 0) {
+      showClaimMessage('Log a knock first to claim a street.', 'error');
+      return;
+    }
+
+    const lastKnock = JSON.parse(knocksRs[0].payload);
+    const streetName = lastKnock.street_name;
+    if (!streetName) {
+      showClaimMessage('No street found.', 'error');
+      return;
+    }
+
+    const result = await claimStreet({
+      repId: user.id,
+      repName: repName || '',
+      streetName,
+      lat: lastKnock.lat,
+      lng: lastKnock.lng,
+    });
+
+    showClaimMessage(result.message, result.success ? 'success' : 'error');
+    if (result.success) refreshPins();
+  }
+
+  async function handleReleaseClaim(claimId) {
+    const success = await releaseStreetClaim(claimId);
+    if (success) {
+      showClaimMessage('Street released.', 'success');
+      refreshPins();
+    } else {
+      showClaimMessage('Failed to release.', 'error');
+    }
+  }
+
+  function showClaimMessage(msg, type) {
+    setClaimMessage({ msg, type });
+    setTimeout(() => setClaimMessage(null), 3000);
+  }
+
+  const myClaims = streetClaims.filter(c => c.rep_id === user?.id);
   const showGeoWarning = totalKnocks > 0 && pinCount === 0;
+  const sheetOpen = selectedPin !== null;
 
   return (
     <div className="map-container">
       <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
 
-      <div className="map-pin-count">
-        <span>{pinCount}</span> properties
+      {/* ── View Toggle ── */}
+      <div className="map-view-toggle">
+        <button
+          className={`map-toggle-btn ${mapView === 'MY' ? 'active' : ''}`}
+          onClick={() => setMapView('MY')}
+        >
+          My Pins
+        </button>
+        <button
+          className={`map-toggle-btn ${mapView === 'TEAM' ? 'active' : ''}`}
+          onClick={() => setMapView('TEAM')}
+        >
+          Team View
+          {teamPinCount > 0 && <span className="team-badge">{teamPinCount}</span>}
+        </button>
+      </div>
+
+      {/* ── Pin Count ── */}
+      <div className="map-pin-count" style={{ left: 16, top: 60 }}>
+        <span>{pinCount}</span> {mapView === 'MY' ? 'my properties' : 'my properties'}
+        {mapView === 'TEAM' && teamPinCount > 0 && (
+          <span style={{ marginLeft: 8, color: '#a78bfa', fontSize: 10 }}>
+            + {teamPinCount} team
+          </span>
+        )}
         {totalKnocks > 0 && pinCount < totalKnocks && (
           <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 10 }}>
             ({totalKnocks - pinCount} without GPS)
           </span>
         )}
       </div>
+
+      {/* ── Claim Message Toast ── */}
+      {claimMessage && (
+        <div className={`claim-toast ${claimMessage.type}`}>
+          {claimMessage.msg}
+        </div>
+      )}
+
+      {/* ── Street Claims Panel (Team View) ── */}
+      {mapView === 'TEAM' && (
+        <div className="claims-panel">
+          <div className="claims-panel-header">
+            <span>Street Claims</span>
+            <button className="claim-street-btn" onClick={handleClaimCurrentStreet}>
+              + Claim Street
+            </button>
+          </div>
+
+          {streetClaims.length === 0 ? (
+            <div className="claims-empty">No streets claimed today.</div>
+          ) : (
+            <div className="claims-list">
+              {streetClaims.map(claim => {
+                const isMine = claim.rep_id === user?.id;
+                const claimCount = streetClaims.filter(c => c.street_name === claim.street_name).length;
+                return (
+                  <div className={`claim-item ${isMine ? 'mine' : ''}`} key={claim.id}>
+                    <div className="claim-info">
+                      <span className="claim-street">{claim.street_name}</span>
+                      <span className="claim-rep">{isMine ? 'You' : claim.rep_name || 'Teammate'}</span>
+                    </div>
+                    <div className="claim-meta">
+                      <span className={`claim-slots ${claimCount >= 2 ? 'full' : ''}`}>
+                        {claimCount}/2
+                      </span>
+                      {isMine && (
+                        <button className="claim-release-btn" onClick={() => handleReleaseClaim(claim.id)}>
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {myClaims.length > 0 && (
+            <div className="my-claims-summary">
+              You claimed: {myClaims.map(c => c.street_name).join(', ')}
+            </div>
+          )}
+        </div>
+      )}
 
       {showGeoWarning && (
         <div className="map-geo-warning">
@@ -253,7 +475,7 @@ export default function MapTab({ user, isActive }) {
         </div>
       )}
 
-      <button className="map-recenter-btn" onClick={handleRecenter} title="Recenter" style={{ bottom: selectedPin ? 'calc(24px + 140px)' : '24px' }}>
+      <button className="map-recenter-btn" onClick={handleRecenter} title="Recenter" style={{ bottom: sheetOpen ? 'calc(24px + 180px)' : '24px' }}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <circle cx="12" cy="12" r="3"></circle>
@@ -264,12 +486,21 @@ export default function MapTab({ user, isActive }) {
         </svg>
       </button>
 
-      <div className={`pin-sheet-overlay ${selectedPin ? 'open' : ''}`}>
+      {/* ── Pin Info Bottom Sheet ── */}
+      <div className={`pin-sheet-overlay ${sheetOpen ? 'open' : ''}`}>
         {selectedPin && (
           <>
             <div className="pin-sheet-header">
               <div>
-                <div className="pin-sheet-address">{selectedPin.address}</div>
+                <div className="pin-sheet-address">
+                  {selectedPin.address}
+                  {selectedPin.isGhost && (
+                    <span className="ghost-badge">TEAM</span>
+                  )}
+                </div>
+                {selectedPin.isGhost && selectedPin.rep_name && (
+                  <div className="pin-sheet-rep">Knocked by {selectedPin.rep_name}</div>
+                )}
               </div>
               <button className="pin-sheet-close" onClick={() => setSelectedPin(null)}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -283,7 +514,7 @@ export default function MapTab({ user, isActive }) {
               }}>
                 {selectedPin.statusLabel}
               </div>
-              {selectedPin.visitsNum > 1 && (
+              {!selectedPin.isGhost && selectedPin.visitsNum > 1 && (
                 <div className="pin-sheet-visits">
                   {selectedPin.visitsNum - 1} Re-knocks ({selectedPin.visitsNum} visits)
                 </div>

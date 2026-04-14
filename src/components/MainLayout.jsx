@@ -17,7 +17,7 @@ export default function MainLayout({ user, repName, onLogout }) {
           <HistoryTab user={user} repName={repName} />
         </div>
         <div style={{ display: activeTab === 'MAP' ? 'block' : 'none', height: '100%', width: '100%' }}>
-          <MapTab user={user} isActive={activeTab === 'MAP'} />
+          <MapTab user={user} repName={repName} isActive={activeTab === 'MAP'} />
         </div>
       </div>
 
