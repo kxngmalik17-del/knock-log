@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import Auth from './components/Auth';
 import MainLayout from './components/MainLayout';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import './index.css';
 
 export default function App() {
@@ -11,7 +12,14 @@ export default function App() {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(({ data: { session: s }, error }) => {
+      if (error) {
+        // Stale refresh token — clear broken session
+        supabase.auth.signOut();
+        setSession(null);
+        setLoading(false);
+        return;
+      }
       setSession(s);
       if (s) fetchRepName(s.user.id);
       else setLoading(false);
@@ -35,7 +43,7 @@ export default function App() {
       .from('reps')
       .select('display_name')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     setRepName(data?.display_name || 'Rep');
     setLoading(false);
