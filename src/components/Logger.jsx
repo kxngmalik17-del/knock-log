@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { sqlocal, insertLocalEvent } from '../lib/db';
+import { sqlocal, insertLocalEvent, updateLocalEvent, softDeleteLocalEvent } from '../lib/db';
 import { syncEngine } from '../lib/syncEngine';
 
 const OUTCOMES = [
@@ -45,6 +45,13 @@ export default function Logger({ user, repName, onLogout }) {
   const [flashOutcome, setFlashOutcome] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Edit / Notes State
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [editNotes, setEditNotes] = useState('');
+  const [editOutcome, setEditOutcome] = useState('');
+  const [editHouseNum, setEditHouseNum] = useState('');
+  const longPressTimerRef = useRef(null);
 
   // Sync Observability
   const [unsyncedCount, setUnsyncedCount] = useState(0);
@@ -383,6 +390,44 @@ export default function Logger({ user, repName, onLogout }) {
       logKnock('CONVO', opt);
     }
   }
+
+  const handleTouchStart = (e, evt) => {
+    if (evt.type !== 'KNOCK') return;
+    longPressTimerRef.current = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(50);
+      setEditingEvent(evt);
+      setEditNotes(evt.notes || '');
+      setEditOutcome(evt.outcome_type || '');
+      setEditHouseNum(evt.house_number || '');
+    }, 500);
+  };
+
+  const handleTouchEndOrMove = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editingEvent) return;
+    const updatedPayload = {
+      ...editingEvent,
+      notes: editNotes,
+      outcome_type: editOutcome,
+      house_number: editHouseNum
+    };
+    await updateLocalEvent(editingEvent.id, updatedPayload);
+    setEvents(prev => prev.map(e => e.id === editingEvent.id ? { ...e, ...updatedPayload } : e));
+    setEditingEvent(null);
+  };
+
+  const deleteEdit = async () => {
+    if (!editingEvent) return;
+    await softDeleteLocalEvent(editingEvent.id);
+    setEvents(prev => prev.filter(e => e.id !== editingEvent.id));
+    setEditingEvent(null);
+  };
 
   async function startBreak() {
     if (!session) return;
@@ -825,7 +870,14 @@ export default function Logger({ user, repName, onLogout }) {
         ) : (
           <div className="log-list">
             {feedItems.slice(0, 30).map(e => (
-              <div className="log-item" key={e.id}>
+              <div 
+                className="log-item select-none" 
+                key={e.id}
+                onPointerDown={(ev) => handleTouchStart(ev, e)}
+                onPointerUp={handleTouchEndOrMove}
+                onPointerLeave={handleTouchEndOrMove}
+                onPointerCancel={handleTouchEndOrMove}
+              >
                 {e.type === 'BREAK' ? (
                   <>
                     <div className="log-outcome" style={{ color: '#f59e0b' }}>BREAK</div>
@@ -863,6 +915,57 @@ export default function Logger({ user, repName, onLogout }) {
           </div>
         )}
       </div>
+
+      {editingEvent && (
+        <div className="edit-modal-overlay">
+          <div className="edit-modal-content">
+            <div className="edit-modal-header">
+              <h3>Edit Knock</h3>
+              <button className="objection-cancel" onClick={() => { setEditingEvent(null); handleTouchEndOrMove(); }}>x</button>
+            </div>
+            
+            <div className="edit-modal-body">
+              <div className="edit-field">
+                <label>House Number</label>
+                <input 
+                  type="text" 
+                  className="auth-input edit-input" 
+                  value={editHouseNum} 
+                  onChange={e => setEditHouseNum(e.target.value)} 
+                />
+              </div>
+              
+              <div className="edit-field">
+                <label>Outcome</label>
+                <select 
+                  className="auth-input edit-select" 
+                  value={editOutcome} 
+                  onChange={e => setEditOutcome(e.target.value)}
+                >
+                  <option value="NO_ANSWER">NO ANSWER</option>
+                  <option value="CONVO">CONVO</option>
+                  <option value="SALE">SALE</option>
+                </select>
+              </div>
+
+              <div className="edit-field">
+                <label>Notes</label>
+                <textarea 
+                  className="auth-input edit-textarea" 
+                  placeholder="Additional context... e.g. Gate Code 1234" 
+                  value={editNotes} 
+                  onChange={e => setEditNotes(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="edit-modal-footer">
+              <button className="delete-knock-btn" onClick={deleteEdit}>Delete Knock</button>
+              <button className="save-knock-btn" onClick={saveEdit}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

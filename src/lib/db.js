@@ -117,4 +117,21 @@ export async function getAllProperties() {
   `;
 }
 
+export async function updateLocalEvent(event_id, updatedPayload) {
+  await sqlocal.sql`
+    UPDATE events 
+    SET payload = ${JSON.stringify(updatedPayload)}, synced = 0 
+    WHERE event_id = ${event_id}
+  `;
+}
+
+export async function softDeleteLocalEvent(event_id) {
+  // Soft delete by changing type, keeping it in the sync queue
+  await sqlocal.sql`
+    UPDATE events 
+    SET type = 'DELETED', synced = 0 
+    WHERE event_id = ${event_id}
+  `;
+}
+
 initLocalSchema().catch(console.error);

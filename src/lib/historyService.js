@@ -53,6 +53,7 @@ export async function getLocalHistory() {
           outcome: payload.outcome_type,
           objection: payload.objection_type || payload.convo_status,
           callback_time: payload.callback_time,
+          notes: payload.notes,
           lat: payload.lat,
           lng: payload.lng,
           synced: row.synced === 1
