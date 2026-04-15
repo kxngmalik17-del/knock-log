@@ -71,8 +71,8 @@ class SyncEngine {
 
     console.log(`[SyncEngine] Found ${pending.length} pending events to sync.`);
 
-    // Batch process: 50 at a time
-    const batchSize = 50;
+    // Batch process: 25 at a time for faster round-trips
+    const batchSize = 25;
     for (let i = 0; i < pending.length; i += batchSize) {
       const batch = pending.slice(i, i + batchSize);
       
@@ -91,15 +91,11 @@ class SyncEngine {
 
       if (error) {
         console.error('[SyncEngine] Batch sync failed:', error);
-        // Exponential backoff or just increment retry count
-        for (let event of batch) {
-          await incrementEventRetry(event.event_id);
-        }
+        // Mark retries concurrently instead of sequentially
+        await Promise.all(batch.map(e => incrementEventRetry(e.event_id)));
       } else {
-        // Mark synced
-        for (let event of batch) {
-          await markEventSynced(event.event_id);
-        }
+        // Mark synced concurrently instead of sequentially
+        await Promise.all(batch.map(e => markEventSynced(e.event_id)));
         console.log(`[SyncEngine] Successfully synced batch of ${batch.length} events.`);
       }
     }

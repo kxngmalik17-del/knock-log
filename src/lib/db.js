@@ -55,10 +55,10 @@ export async function upsertServerEvent(event_id, type, payload, created_at) {
   `;
 }
 
-// Get pending events
+// Get pending events (exclude permanently failed)
 export async function getPendingEvents() {
   return await sqlocal.sql`
-    SELECT * FROM events WHERE synced = 0 ORDER BY created_at ASC
+    SELECT * FROM events WHERE synced = 0 AND retry_count < 5 ORDER BY created_at ASC LIMIT 100
   `;
 }
 
