@@ -685,6 +685,8 @@ export default function Logger({ user, repName, onLogout }) {
                 onChange={e => setHouseNum(e.target.value)}
               />
               <div className="step-toggles">
+                <button className={`step-btn ${stepSize === -2 ? 'active' : ''}`} onClick={() => setStepSize(-2)}>-2</button>
+                <button className={`step-btn ${stepSize === -1 ? 'active' : ''}`} onClick={() => setStepSize(-1)}>-1</button>
                 <button className={`step-btn ${stepSize === 1 ? 'active' : ''}`} onClick={() => setStepSize(1)}>+1</button>
                 <button className={`step-btn ${stepSize === 2 ? 'active' : ''}`} onClick={() => setStepSize(2)}>+2</button>
               </div>
