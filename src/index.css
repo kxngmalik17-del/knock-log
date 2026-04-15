@@ -1025,14 +1025,15 @@ body {
 }
 
 .step-btn {
-  padding: 0 10px;
+  padding: 0 18px;
   background: transparent;
   color: var(--text-secondary);
   border: none;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 800;
   cursor: pointer;
+  min-width: 52px;
 }
 
 .step-btn.active {
