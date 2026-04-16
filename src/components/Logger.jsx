@@ -627,6 +627,44 @@ export default function Logger({ user, repName, onLogout }) {
       }
     });
 
+    // Session Analytics Calculations
+    const startT = session?.start_time ? new Date(session.start_time) : null;
+    const endT = session?.end_time ? new Date(session.end_time) : new Date();
+    const totalMs = startT ? (endT - startT) : 0;
+    
+    let totalBreakSec = 0;
+    events.forEach(e => {
+      if (e.type === 'BREAK' && e.duration) totalBreakSec += e.duration;
+    });
+    
+    const activeMs = Math.max(0, totalMs - (totalBreakSec * 1000));
+    const activeHours = Math.max(0.01, activeMs / (1000 * 60 * 60));
+    
+    const dph = (totalDoors / activeHours).toFixed(1);
+    const pph = (qualifiedDoors / activeHours).toFixed(1);
+    
+    const objectionCounts = {};
+    events.forEach(e => {
+      const obj = e.objection_type;
+      if (e.outcome_type === 'CONVO' && obj && obj !== 'CALLBACK' && obj !== 'NOT DECISION MAKER') {
+        objectionCounts[obj] = (objectionCounts[obj] || 0) + 1;
+      }
+    });
+    const maxObjectionCount = Math.max(...Object.values(objectionCounts), 1);
+
+    let bestStreet = { name: 'N/A', sales: -1 };
+    Object.entries(streetMap).forEach(([name, stats]) => {
+      if (stats.sales > bestStreet.sales) {
+        bestStreet = { name, sales: stats.sales };
+      }
+    });
+
+    const formatDuration = (ms) => {
+      const hours = Math.floor(ms / (1000 * 60 * 60));
+      const mins = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+      return `${hours}h ${mins}m`;
+    };
+
     return (
       <div className="logger-container">
         <SyncIndicator />
@@ -639,33 +677,83 @@ export default function Logger({ user, repName, onLogout }) {
 
         <div className="closed-summary">
           <div className="hero-metric">
-            <span className="hero-count">{totalDoors}</span>
-            <span className="hero-label">TOTAL DOORS</span>
+            <span className="hero-count">{totalSales}</span>
+            <span className="hero-label">TOTAL SALES</span>
           </div>
 
-          <div className="closed-metrics-row">
-            <div className="closed-metric">
-              <span className="closed-metric-count" style={{ color: '#3b82f6' }}>{totalConvos}</span>
-              <span className="closed-metric-label">CONVO</span>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <span className="stat-card-label">Session Time</span>
+              <span className="stat-card-value">{formatDuration(totalMs)}</span>
+              <span className="stat-card-sub">{totalBreakSec > 0 ? `${Math.floor(totalBreakSec/60)}m break` : 'No breaks'}</span>
             </div>
-            <div className="closed-metric">
-              <span className="closed-metric-count" style={{ color: '#10b981' }}>{totalSales}</span>
-              <span className="closed-metric-label">SALE</span>
-            </div>
-            <div className="closed-metric">
-              <span className="closed-metric-count" style={{ color: '#f59e0b' }}>{conversionRate}%</span>
-              <span className="closed-metric-label">CLOSE %</span>
+            <div className="stat-card">
+              <span className="stat-card-label">Close Rate</span>
+              <span className="stat-card-value" style={{ color: 'var(--success)' }}>{conversionRate}%</span>
+              <span className="stat-card-sub">{totalSales} of {qualifiedDoors} pitches</span>
             </div>
           </div>
+
+          <div className="efficiency-section">
+            <h3 className="efficiency-title">Efficiency Analytics</h3>
+            <div className="efficiency-row">
+              <div className="efficiency-metric">
+                <span className="efficiency-val">{dph}</span>
+                <span className="efficiency-lab">Doors / Active Hr</span>
+              </div>
+              <div className="efficiency-metric" style={{ textAlign: 'right' }}>
+                <span className="efficiency-val">{pph}</span>
+                <span className="efficiency-lab">Pitches / Active Hr</span>
+              </div>
+            </div>
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.04)' }}></div>
+            <div className="efficiency-row">
+              <div className="efficiency-metric">
+                <span className="efficiency-val">{totalDoors}</span>
+                <span className="efficiency-lab">Total Doors</span>
+              </div>
+              <div className="efficiency-metric" style={{ textAlign: 'right' }}>
+                <span className="efficiency-val">{totalConvos}</span>
+                <span className="efficiency-lab">Real Conversations</span>
+              </div>
+            </div>
+          </div>
+
+          {bestStreet.sales > 0 && (
+            <div className="best-street-badge">
+              <div className="best-street-info">
+                <h4>Top Street</h4>
+                <div className="best-street-name">{bestStreet.name}</div>
+              </div>
+              <div className="usage-count" style={{ color: 'var(--success)', fontSize: '18px' }}>{bestStreet.sales}S</div>
+            </div>
+          )}
+
+          {Object.keys(objectionCounts).length > 0 && (
+            <div className="objections-analytics">
+              <h3 className="analytics-title">Objection Data</h3>
+              <div className="objection-usage-bar">
+                {Object.entries(objectionCounts).sort((a,b) => b[1] - a[1]).map(([label, count]) => (
+                  <div className="usage-item" key={label}>
+                    <div className="usage-label">{label}</div>
+                    <div className="usage-track">
+                      <div className="usage-fill" style={{ width: `${(count / maxObjectionCount) * 100}%` }}></div>
+                    </div>
+                    <div className="usage-count">{count}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {session?.export_status === 'COMPLETE' && (
-            <button className="download-btn" onClick={downloadCsv}>
-              DOWNLOAD EXPORT CSV
+            <button className="download-btn" onClick={downloadCsv} style={{ marginTop: 12 }}>
+              DOWNLOAD SESSION CSV
             </button>
           )}
 
           {Object.keys(streetMap).length > 0 && (
-            <div className="street-breakdown">
+            <div className="street-breakdown" style={{ marginTop: 8 }}>
               <h3 className="street-breakdown-title">BY STREET</h3>
               {Object.entries(streetMap).map(([name, stats]) => (
                 <div className="street-row" key={name}>
