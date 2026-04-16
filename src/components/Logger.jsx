@@ -474,14 +474,23 @@ export default function Logger({ user, repName, onLogout }) {
   [...events].reverse().forEach(e => {
     if (e.type === 'KNOCK') {
       const address = `${e.house_number || ''} ${e.street_name || ''}`.trim();
-      if (address) propertyOutcomes[address] = e.outcome_type;
+      if (address) {
+        propertyOutcomes[address] = {
+          outcome: e.outcome_type,
+          objection: e.objection_type
+        };
+      }
     }
   });
 
-  const totalDoors = Object.keys(propertyOutcomes).length;
-  const totalConvos = Object.values(propertyOutcomes).filter(o => o === 'CONVO').length;
-  const totalSales = Object.values(propertyOutcomes).filter(o => o === 'SALE').length;
-  const conversionRate = totalDoors > 0 ? ((totalSales / totalDoors) * 100).toFixed(1) : '0.0';
+  const doorList = Object.values(propertyOutcomes);
+  const totalDoors = doorList.length;
+  const totalSales = doorList.filter(o => o.outcome === 'SALE').length;
+  // Qualfied = Talked to decision maker. Filter out NO_ANSWER and NOT DECISION MAKER.
+  const totalConvos = doorList.filter(o => o.outcome === 'CONVO' && o.objection !== 'NOT DECISION MAKER').length;
+  
+  const qualifiedDoors = totalSales + totalConvos;
+  const conversionRate = qualifiedDoors > 0 ? ((totalSales / qualifiedDoors) * 100).toFixed(1) : '0.0';
 
   const isReknock = street && houseNum && events.some(e => 
     e.type === 'KNOCK' && 
@@ -597,11 +606,25 @@ export default function Logger({ user, repName, onLogout }) {
 
   if (dayState === 'CLOSED') {
     const streetMap = {};
-    events.filter(e => e.type === 'KNOCK').forEach(e => {
+    // Use propertyOutcomes logic to avoid double-counting reknocks in street summary
+    const uniquePropertyStats = {};
+    [...events].reverse().forEach(e => {
+      if (e.type === 'KNOCK') {
+        const addr = `${e.house_number || ''} ${e.street_name || ''}`.trim();
+        if (addr && !uniquePropertyStats[addr]) {
+          uniquePropertyStats[addr] = e;
+        }
+      }
+    });
+
+    Object.values(uniquePropertyStats).forEach(e => {
       if (!streetMap[e.street_name]) streetMap[e.street_name] = { doors: 0, sales: 0, convos: 0 };
       streetMap[e.street_name].doors++;
-      if (e.outcome_type === 'SALE') streetMap[e.street_name].sales++;
-      if (e.outcome_type === 'CONVO') streetMap[e.street_name].convos++;
+      if (e.outcome_type === 'SALE') {
+        streetMap[e.street_name].sales++;
+      } else if (e.outcome_type === 'CONVO' && e.objection_type !== 'NOT DECISION MAKER') {
+        streetMap[e.street_name].convos++;
+      }
     });
 
     return (
