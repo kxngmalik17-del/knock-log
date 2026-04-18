@@ -9,7 +9,7 @@ import {
   insertLocalEvent
 } from './db';
 
-const SYNC_INTERVAL_MS = 5000; // 5 seconds
+const SYNC_INTERVAL_MS = 15000; // 15 seconds (battery-optimized)
 const MAX_RETRIES = 5;
 
 class SyncEngine {

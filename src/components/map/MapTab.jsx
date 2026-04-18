@@ -297,12 +297,15 @@ export default function MapTab({ user, repName, isActive }) {
     }
   }, [mapReady, user?.id]);
 
+  // ── Refresh pins only when tab is active (battery optimization) ──
   useEffect(() => {
     if (!mapReady) return;
-    refreshPins();
-    const id = setInterval(refreshPins, 5000);
+    if (!isActive) return; // Don't poll when tab is hidden
+
+    refreshPins(); // Immediate refresh when tab becomes active
+    const id = setInterval(refreshPins, 15000); // 15s instead of 5s
     return () => clearInterval(id);
-  }, [mapReady, refreshPins]);
+  }, [mapReady, refreshPins, isActive]);
 
   function handleRecenter() {
     if (!mapRef.current) return;

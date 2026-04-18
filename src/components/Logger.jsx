@@ -20,7 +20,7 @@ const CONVO_OPTIONS = [
   'NOT CONVINCED'
 ];
 
-export default function Logger({ user, repName, onLogout }) {
+export default function Logger({ user, repName, onLogout, isActive }) {
   const [dayState, setDayState] = useState('NOT_STARTED');
   const [session, setSession] = useState(null);
   const [street, setStreet] = useState('');
@@ -123,12 +123,25 @@ export default function Logger({ user, repName, onLogout }) {
       } catch(e) {}
     };
 
+    // Subscribe to sync engine events — no need for a separate polling interval
     const unsub = syncEngine.subscribe(updateSyncStatus);
-    const id = setInterval(updateSyncStatus, 3000);
     updateSyncStatus();
 
-    // Start passive geolocation tracking
-    if ('geolocation' in navigator) {
+    return () => { 
+      unsub(); 
+      syncEngine.stop();
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [user.id]);
+
+  // ── GPS lifecycle: only track location when tab is active & session is running ──
+  useEffect(() => {
+    const shouldTrack = isActive && (dayState === 'ACTIVE');
+
+    if (shouldTrack && 'geolocation' in navigator && watchIdRef.current === null) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
@@ -136,17 +149,18 @@ export default function Logger({ user, repName, onLogout }) {
         () => { /* silently ignore denied/timeout */ },
         { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
       );
+    } else if (!shouldTrack && watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
     }
 
-    return () => { 
-      unsub(); 
-      clearInterval(id);
-      syncEngine.stop();
+    return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
       }
     };
-  }, [user.id]);
+  }, [isActive, dayState]);
 
   async function startDay() {
     setError('');

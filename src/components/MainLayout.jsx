@@ -11,10 +11,10 @@ export default function MainLayout({ user, repName, onLogout }) {
     <div className="app-layout">
       <div className="app-content" style={{ paddingBottom: activeTab === 'MAP' ? '64px' : '70px', minHeight: '100vh', boxSizing: 'border-box' }}>
         <div style={{ display: activeTab === 'KNOCK' ? 'block' : 'none', height: '100%' }}>
-          <Logger user={user} repName={repName} onLogout={onLogout} />
+          <Logger user={user} repName={repName} onLogout={onLogout} isActive={activeTab === 'KNOCK'} />
         </div>
         <div style={{ display: activeTab === 'HISTORY' ? 'block' : 'none', height: '100%' }}>
-          <HistoryTab user={user} repName={repName} />
+          <HistoryTab user={user} repName={repName} isActive={activeTab === 'HISTORY'} />
         </div>
         <div style={{ display: activeTab === 'MAP' ? 'block' : 'none', height: '100%', width: '100%' }}>
           <MapTab user={user} repName={repName} isActive={activeTab === 'MAP'} />
