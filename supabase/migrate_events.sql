@@ -48,7 +48,8 @@ begin
   elsif new.type = 'KNOCK' then
     insert into public.knock_events (
       id, rep_id, session_id, street_name, house_number, timestamp, 
-      outcome_type, convo_status, objection_type, callback_time
+      outcome_type, convo_status, objection_type, callback_time,
+      lat, lng
     ) values (
       new.event_id,
       new.rep_id,
@@ -59,7 +60,9 @@ begin
       new.payload->>'outcome_type',
       new.payload->>'convo_status',
       new.payload->>'objection_type',
-      (new.payload->>'callback_time')::timestamp with time zone
+      (new.payload->>'callback_time')::timestamp with time zone,
+      (new.payload->>'lat')::real,
+      (new.payload->>'lng')::real
     ) on conflict (id) do nothing;
 
   elsif new.type = 'BREAK_START' then

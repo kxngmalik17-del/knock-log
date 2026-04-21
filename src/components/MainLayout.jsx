@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Logger from './Logger';
 import HistoryTab from './history/HistoryTab';
 import MapTab from './map/MapTab';
+import TeamTab from './team/TeamTab';
 import './historyStyles.css';
 
 export default function MainLayout({ user, repName, onLogout }) {
@@ -9,7 +10,7 @@ export default function MainLayout({ user, repName, onLogout }) {
 
   return (
     <div className="app-layout">
-      <div className="app-content" style={{ paddingBottom: activeTab === 'MAP' ? '64px' : '70px', minHeight: '100vh', boxSizing: 'border-box' }}>
+      <div className="app-content" style={{ paddingBottom: activeTab === 'MAP' || activeTab === 'TEAM' ? '64px' : '70px', minHeight: '100vh', boxSizing: 'border-box' }}>
         <div style={{ display: activeTab === 'KNOCK' ? 'block' : 'none', height: '100%' }}>
           <Logger user={user} repName={repName} onLogout={onLogout} isActive={activeTab === 'KNOCK'} />
         </div>
@@ -19,10 +20,15 @@ export default function MainLayout({ user, repName, onLogout }) {
         <div style={{ display: activeTab === 'MAP' ? 'block' : 'none', height: '100%', width: '100%' }}>
           <MapTab user={user} repName={repName} isActive={activeTab === 'MAP'} />
         </div>
+        <div style={{ display: activeTab === 'TEAM' ? 'block' : 'none', height: '100%', width: '100%' }}>
+          <TeamTab user={user} repName={repName} isActive={activeTab === 'TEAM'} />
+        </div>
       </div>
 
       <nav className="bottom-nav">
-        <button 
+        {/* Knock */}
+        <button
+          id="nav-knock"
           className={`nav-btn ${activeTab === 'KNOCK' ? 'active' : ''}`}
           onClick={() => setActiveTab('KNOCK')}
         >
@@ -34,7 +40,10 @@ export default function MainLayout({ user, repName, onLogout }) {
           </div>
           <span>Knock</span>
         </button>
-        <button 
+
+        {/* Map */}
+        <button
+          id="nav-map"
           className={`nav-btn ${activeTab === 'MAP' ? 'active' : ''}`}
           onClick={() => setActiveTab('MAP')}
         >
@@ -47,7 +56,27 @@ export default function MainLayout({ user, repName, onLogout }) {
           </div>
           <span>Map</span>
         </button>
-        <button 
+
+        {/* Team Hub */}
+        <button
+          id="nav-team"
+          className={`nav-btn ${activeTab === 'TEAM' ? 'active' : ''}`}
+          onClick={() => setActiveTab('TEAM')}
+        >
+          <div className="nav-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </div>
+          <span>Team</span>
+        </button>
+
+        {/* History */}
+        <button
+          id="nav-history"
           className={`nav-btn ${activeTab === 'HISTORY' ? 'active' : ''}`}
           onClick={() => setActiveTab('HISTORY')}
         >
@@ -67,4 +96,3 @@ export default function MainLayout({ user, repName, onLogout }) {
     </div>
   );
 }
-
