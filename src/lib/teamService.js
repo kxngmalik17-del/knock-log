@@ -140,61 +140,68 @@ export async function getTeamStats() {
 
 
 /**
- * Fetch all street claims for today.
+ * Fetch today's team activity for the Live Feed and Team Radar.
+ * Returns { feed: [], radar: [] }
  */
-export async function getTodayStreetClaims() {
-  const todayStr = new Date().toISOString().split('T')[0];
-  const { data, error } = await supabase
-    .from('street_claims')
-    .select('*')
-    .eq('session_date', todayStr);
-
-  if (error) {
-    console.error('[TeamService] Failed to fetch street claims:', error);
-    return [];
-  }
-  return data || [];
-}
-
-/**
- * Claim a street for the current rep. Returns { success, message, claim? }
- */
-export async function claimStreet({ repId, repName, streetName, lat, lng }) {
+export async function getTeamActivity() {
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const { data: existing, error: fetchError } = await supabase
-    .from('street_claims')
-    .select('*')
-    .eq('street_name', streetName)
-    .eq('session_date', todayStr);
+  const { data: events, error } = await supabase
+    .from('events')
+    .select('rep_id, payload, created_at')
+    .eq('type', 'KNOCK')
+    .gte('created_at', todayStr + 'T00:00:00.000Z')
+    .order('created_at', { ascending: false });
 
-  if (fetchError) return { success: false, message: 'Failed to check existing claims.' };
-  if (existing?.some(c => c.rep_id === repId)) return { success: false, message: 'You already claimed this street.' };
-  if (existing?.length >= 2) {
-    const claimedBy = existing.map(c => c.rep_name || 'Unknown').join(' & ');
-    return { success: false, message: `Street is full — claimed by ${claimedBy}.` };
+  if (error || !events) {
+    console.error('[TeamService] Failed to fetch team activity:', error);
+    return { feed: [], radar: [] };
   }
 
-  const { data: claim, error: insertError } = await supabase
-    .from('street_claims')
-    .insert({ rep_id: repId, rep_name: repName || '', street_name: streetName, street_center_lat: lat || null, street_center_lng: lng || null, session_date: todayStr })
-    .select()
-    .single();
+  const { data: reps } = await supabase.from('reps').select('user_id, display_name');
+  const repNameMap = {};
+  (reps || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
 
-  if (insertError) {
-    if (insertError.code === '23505') return { success: false, message: 'You already claimed this street.' };
-    return { success: false, message: 'Failed to claim street.' };
+  const feed = [];
+  const radarMap = {};
+
+  for (const row of events) {
+    const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const rid = row.rep_id;
+    const repName = repNameMap[rid] || 'Teammate';
+    const timestamp = p.timestamp || row.created_at;
+    const streetName = p.street_name || 'Unknown Street';
+    
+    // Determine status
+    const status = resolveStatus(p);
+
+    // 1. Build Live Feed (Notable events only)
+    if (['SALE', 'CONVO', 'CALLBACK'].includes(status)) {
+      feed.push({
+        id: row.created_at + rid, // unique enough for a key
+        rep_id: rid,
+        rep_name: repName,
+        status: status,
+        street_name: streetName,
+        timestamp: timestamp
+      });
+    }
+
+    // 2. Build Team Radar (Only the most recent knock per rep)
+    if (!radarMap[rid]) {
+      radarMap[rid] = {
+        rep_id: rid,
+        rep_name: repName,
+        street_name: streetName,
+        timestamp: timestamp
+      };
+    }
   }
 
-  return { success: true, message: 'Street claimed!', claim };
-}
-
-/**
- * Release a street claim.
- */
-export async function releaseStreetClaim(claimId) {
-  const { error } = await supabase.from('street_claims').delete().eq('id', claimId);
-  return !error;
+  return {
+    feed, // Already sorted descending by the SQL query
+    radar: Object.values(radarMap).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+  };
 }
 
 

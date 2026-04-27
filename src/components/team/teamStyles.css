@@ -318,164 +318,124 @@
   flex-shrink: 0;
 }
 
-/* ── Street Claims ── */
-.team-claims-wrapper {
-  padding: 0 16px 24px;
-}
-
-.team-claim-action-row {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.team-claim-main-btn {
-  flex: 1;
-  padding: 12px;
-  border: none;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  transition: transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.team-claim-main-btn:active {
-  transform: scale(0.96);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
-}
-
-.team-claims-count {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 12px;
-  padding: 12px 16px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary, #8888a0);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-width: 64px;
-}
-
-.team-claims-count strong {
-  font-size: 20px;
-  color: var(--text-primary, #f0f0f5);
-  font-weight: 900;
-}
-
-.team-claims-group-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-muted, #55556a);
-  margin: 16px 0 10px;
-}
-
-.team-claims-list {
+/* ── Activity Feed & Radar ── */
+.activity-radar-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 0 16px;
 }
 
-.team-claim-card {
+.radar-card {
   background: var(--bg-card, #12121e);
   border: 1px solid rgba(255,255,255,0.05);
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-.team-claim-card.is-mine {
-  border-color: rgba(99, 102, 241, 0.25);
-  background: rgba(99, 102, 241, 0.06);
-}
-
-.team-claim-street-icon {
+.radar-avatar {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: rgba(245, 158, 11, 0.1);
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
   flex-shrink: 0;
 }
 
-.team-claim-card.is-mine .team-claim-street-icon {
-  background: rgba(99, 102, 241, 0.12);
-}
-
-.team-claim-info {
+.radar-info {
   flex: 1;
   min-width: 0;
 }
 
-.team-claim-street-name {
+.radar-name {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-primary, #f0f0f5);
+  margin-bottom: 2px;
+}
+
+.radar-loc {
+  font-size: 11px;
+  color: var(--text-secondary, #8888a0);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.team-claim-rep-name {
+.radar-time {
   font-size: 11px;
-  color: var(--text-secondary, #8888a0);
-  margin-top: 2px;
-}
-
-.team-claim-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 9px;
-  border-radius: 20px;
+  font-weight: 600;
+  color: var(--text-muted, #55556a);
   flex-shrink: 0;
 }
 
-.team-claim-badge.open {
-  background: rgba(99, 102, 241, 0.12);
-  color: #818cf8;
+.activity-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px;
 }
 
-.team-claim-badge.full {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
-
-.team-claim-release {
-  width: 28px;
-  height: 28px;
-  border: none;
+.feed-card {
+  background: rgba(255,255,255,0.02);
+  border-left: 2px solid transparent;
   border-radius: 8px;
-  background: rgba(239, 68, 68, 0.08);
-  color: #ef4444;
-  cursor: pointer;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.feed-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   flex-shrink: 0;
-  transition: background 0.15s;
 }
 
-.team-claim-release:active {
-  background: rgba(239, 68, 68, 0.18);
+.feed-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-text {
+  font-size: 13px;
+  color: var(--text-primary, #f0f0f5);
+  margin-bottom: 3px;
+}
+
+.feed-street {
+  font-size: 11px;
+  color: var(--text-secondary, #8888a0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-time {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted, #55556a);
+  flex-shrink: 0;
+}
+
+.activity-empty {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted, #55556a);
+  font-size: 14px;
 }
 
 .team-claims-empty {

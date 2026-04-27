@@ -3,9 +3,7 @@ import mapboxgl from 'mapbox-gl';
 import {
   getTeamStats,
   getTeamCoverageGeoJSON,
-  getTodayStreetClaims,
-  claimStreet,
-  releaseStreetClaim,
+  getTeamActivity,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
@@ -56,9 +54,9 @@ function CloseRing({ pct, size = 44 }) {
 }
 
 export default function TeamTab({ user, repName, isActive }) {
-  const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'MAP' | 'CLAIMS'
+  const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'MAP' | 'ACTIVITY'
   const [stats, setStats] = useState([]);
-  const [claims, setClaims] = useState([]);
+  const [activityData, setActivityData] = useState({ feed: [], radar: [] });
   const [coverageCount, setCoverageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -73,9 +71,9 @@ export default function TeamTab({ user, repName, isActive }) {
   const loadData = useCallback(async () => {
     if (!navigator.onLine) return;
     try {
-      const [s, c] = await Promise.all([getTeamStats(), getTodayStreetClaims()]);
+      const [s, a] = await Promise.all([getTeamStats(), getTeamActivity()]);
       setStats(s);
-      setClaims(c);
+      setActivityData(a);
     } catch (err) {
       console.error('[TeamTab] loadData error:', err);
     } finally {
@@ -238,40 +236,6 @@ export default function TeamTab({ user, repName, isActive }) {
     loadCoverage(true);
   }
 
-  // ── Claim current street ──
-  async function handleClaim() {
-    try {
-      const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
-      if (rsStart.length === 0) {
-        showToast('Start a session first.', 'error');
-        return;
-      }
-      const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK' ORDER BY created_at DESC LIMIT 1`;
-      if (knocksRs.length === 0) {
-        showToast('Log a knock first to claim a street.', 'error');
-        return;
-      }
-      const lastKnock = JSON.parse(knocksRs[0].payload);
-      const result = await claimStreet({
-        repId: user.id,
-        repName: repName || '',
-        streetName: lastKnock.street_name,
-        lat: lastKnock.lat,
-        lng: lastKnock.lng,
-      });
-      showToast(result.message, result.success ? 'success' : 'error');
-      if (result.success) loadData();
-    } catch (err) {
-      showToast('Something went wrong.', 'error');
-    }
-  }
-
-  async function handleRelease(claimId) {
-    const ok = await releaseStreetClaim(claimId);
-    showToast(ok ? 'Street released.' : 'Failed to release.', ok ? 'success' : 'error');
-    if (ok) loadData();
-  }
-
   function showToast(msg, type) {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3100);
@@ -281,8 +245,15 @@ export default function TeamTab({ user, repName, isActive }) {
     return (name || '?').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
   }
 
-  const myClaims = claims.filter(c => c.rep_id === user?.id);
-  const teamClaims = claims.filter(c => c.rep_id !== user?.id);
+  function getTimeAgo(dateStr) {
+    if (!dateStr) return '';
+    const diffMs = new Date() - new Date(dateStr);
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    return `${diffHrs}h ago`;
+  }
 
   return (
     <div className="team-container">
@@ -312,20 +283,14 @@ export default function TeamTab({ user, repName, isActive }) {
           Coverage
         </button>
         <button
-          id="team-seg-claims"
-          className={`team-seg-btn ${segment === 'CLAIMS' ? 'active' : ''}`}
-          onClick={() => setSegment('CLAIMS')}
+          id="team-seg-activity"
+          className={`team-seg-btn ${segment === 'ACTIVITY' ? 'active' : ''}`}
+          onClick={() => setSegment('ACTIVITY')}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-            <circle cx="12" cy="10" r="3"></circle>
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
           </svg>
-          Streets
-          {claims.length > 0 && (
-            <span style={{ marginLeft: 4, background: '#6366f1', color: '#fff', borderRadius: 8, padding: '1px 5px', fontSize: 9, fontWeight: 900 }}>
-              {claims.length}
-            </span>
-          )}
+          Activity
         </button>
       </nav>
 
@@ -448,12 +413,13 @@ export default function TeamTab({ user, repName, isActive }) {
       </div>
 
       {/* ════════════════════════════════════
-           SEGMENT: STREET CLAIMS
+           SEGMENT: ACTIVITY (Feed & Radar)
          ════════════════════════════════════ */}
-      {segment === 'CLAIMS' && (
-        <div className="team-segment-content">
+      {segment === 'ACTIVITY' && (
+        <div className="team-segment-content" style={{ paddingBottom: 24 }}>
+          {/* Team Radar */}
           <div className="team-section-header">
-            <h2 className="team-section-title">Street Claims</h2>
+            <h2 className="team-section-title">Team Radar</h2>
             <button className="team-refresh-btn" onClick={loadData}>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="23 4 23 10 17 10"></polyline>
@@ -461,90 +427,55 @@ export default function TeamTab({ user, repName, isActive }) {
               </svg>
             </button>
           </div>
+          <div className="activity-radar-list">
+            {activityData.radar.length === 0 ? (
+              <div className="activity-empty">No active reps today yet.</div>
+            ) : (
+              activityData.radar.map((rep, idx) => (
+                <div className="radar-card" key={rep.rep_id}>
+                  <div className="radar-avatar" style={{ background: AVATAR_COLORS[idx % AVATAR_COLORS.length] }}>
+                    {getInitials(rep.rep_name)}
+                  </div>
+                  <div className="radar-info">
+                    <div className="radar-name">{rep.rep_name}{rep.rep_id === user?.id && <span style={{ marginLeft: 6, fontSize: 10, color: '#818cf8', fontWeight: 900 }}>YOU</span>}</div>
+                    <div className="radar-loc">{rep.street_name}</div>
+                  </div>
+                  <div className="radar-time">{getTimeAgo(rep.timestamp)}</div>
+                </div>
+              ))
+            )}
+          </div>
 
-          <div className="team-claims-wrapper">
-            <div className="team-claim-action-row">
-              <button id="team-claim-street-btn" className="team-claim-main-btn" onClick={handleClaim}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-                Claim Current Street
-              </button>
-              <div className="team-claims-count">
-                <strong>{claims.length}</strong>
-                Active
-              </div>
-            </div>
-
-            {claims.length === 0 ? (
-              <div className="team-claims-empty">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginBottom: 12 }}>
-                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                  <circle cx="12" cy="10" r="3"></circle>
-                </svg>
-                <p>No streets claimed today.</p>
-                <p style={{ fontSize: 12, color: '#55556a', marginTop: 4 }}>Claim your street to let the team know where you are.</p>
+          {/* Live Feed */}
+          <div className="team-section-header" style={{ marginTop: 12 }}>
+            <h2 className="team-section-title">Live Feed</h2>
+          </div>
+          <div className="activity-feed-list">
+            {activityData.feed.length === 0 ? (
+              <div className="activity-empty" style={{ marginTop: 24 }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🔥</div>
+                <p>No wins logged yet today.</p>
               </div>
             ) : (
-              <>
-                {myClaims.length > 0 && (
-                  <>
-                    <div className="team-claims-group-label">Your Claims</div>
-                    <div className="team-claims-list">
-                      {myClaims.map(claim => {
-                        const claimCount = claims.filter(c => c.street_name === claim.street_name).length;
-                        return (
-                          <div className="team-claim-card is-mine" key={claim.id}>
-                            <div className="team-claim-street-icon">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                                <circle cx="12" cy="10" r="3"></circle>
-                              </svg>
-                            </div>
-                            <div className="team-claim-info">
-                              <div className="team-claim-street-name">{claim.street_name}</div>
-                              <div className="team-claim-rep-name">You</div>
-                            </div>
-                            <span className={`team-claim-badge ${claimCount >= 2 ? 'full' : 'open'}`}>
-                              {claimCount}/2
-                            </span>
-                            <button className="team-claim-release" onClick={() => handleRelease(claim.id)}>✕</button>
-                          </div>
-                        );
-                      })}
+              activityData.feed.map((event) => {
+                const isSale = event.status === 'SALE';
+                const isCallback = event.status === 'CALLBACK';
+                const color = isSale ? STATUS_COLORS.SALE : isCallback ? STATUS_COLORS.CALLBACK : STATUS_COLORS.CONVO;
+                return (
+                  <div className="feed-card" key={event.id}>
+                    <div className="feed-icon" style={{ background: `${color}1A`, color: color }}>
+                      {isSale ? '💰' : isCallback ? '📅' : '💬'}
                     </div>
-                  </>
-                )}
-
-                {teamClaims.length > 0 && (
-                  <>
-                    <div className="team-claims-group-label" style={{ marginTop: myClaims.length > 0 ? 20 : 0 }}>Team</div>
-                    <div className="team-claims-list">
-                      {teamClaims.map(claim => {
-                        const claimCount = claims.filter(c => c.street_name === claim.street_name).length;
-                        return (
-                          <div className="team-claim-card" key={claim.id}>
-                            <div className="team-claim-street-icon">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                                <circle cx="12" cy="10" r="3"></circle>
-                              </svg>
-                            </div>
-                            <div className="team-claim-info">
-                              <div className="team-claim-street-name">{claim.street_name}</div>
-                              <div className="team-claim-rep-name">{claim.rep_name || 'Teammate'}</div>
-                            </div>
-                            <span className={`team-claim-badge ${claimCount >= 2 ? 'full' : 'open'}`}>
-                              {claimCount >= 2 ? 'Full' : `${claimCount}/2`}
-                            </span>
-                          </div>
-                        );
-                      })}
+                    <div className="feed-content">
+                      <div className="feed-text">
+                        <strong>{event.rep_name}</strong> got a <span style={{ color, fontWeight: 800 }}>{event.status}</span>
+                      </div>
+                      <div className="feed-street">{event.street_name}</div>
                     </div>
-                  </>
-                )}
-              </>
+                    <div className="feed-time">{getTimeAgo(event.timestamp)}</div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
