@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { getActiveSessionGeoJSON } from '../../lib/propertyService';
-import { getTeamGeoJSON, getTodayStreetClaims, claimStreet, releaseStreetClaim } from '../../lib/teamService';
+import { getTeamGeoJSON } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import '../mapStyles.css';
 
@@ -27,8 +27,6 @@ export default function MapTab({ user, repName, isActive }) {
   const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
   const [mapView, setMapView] = useState('MY'); // 'MY' or 'TEAM'
-  const [streetClaims, setStreetClaims] = useState([]);
-  const [claimMessage, setClaimMessage] = useState(null);
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -287,9 +285,6 @@ export default function MapTab({ user, repName, isActive }) {
           teamSource.setData(teamGeo);
           setTeamPinCount(teamGeo.features.length);
         }
-
-        const claims = await getTodayStreetClaims();
-        setStreetClaims(claims);
       }
 
     } catch (err) {
@@ -308,67 +303,6 @@ export default function MapTab({ user, repName, isActive }) {
   }, [mapReady, refreshPins, isActive]);
 
   function handleRecenter() {
-    if (!mapRef.current) return;
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          mapRef.current.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 16 });
-        },
-        () => {}
-      );
-    }
-  }
-
-  async function handleClaimCurrentStreet() {
-    // Read current street from the Logger's active session
-    const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
-    if (rsStart.length === 0) {
-      showClaimMessage('Start a session first.', 'error');
-      return;
-    }
-
-    // Find the most recent knock to determine the active street
-    const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK' ORDER BY created_at DESC LIMIT 1`;
-    if (knocksRs.length === 0) {
-      showClaimMessage('Log a knock first to claim a street.', 'error');
-      return;
-    }
-
-    const lastKnock = JSON.parse(knocksRs[0].payload);
-    const streetName = lastKnock.street_name;
-    if (!streetName) {
-      showClaimMessage('No street found.', 'error');
-      return;
-    }
-
-    const result = await claimStreet({
-      repId: user.id,
-      repName: repName || '',
-      streetName,
-      lat: lastKnock.lat,
-      lng: lastKnock.lng,
-    });
-
-    showClaimMessage(result.message, result.success ? 'success' : 'error');
-    if (result.success) refreshPins();
-  }
-
-  async function handleReleaseClaim(claimId) {
-    const success = await releaseStreetClaim(claimId);
-    if (success) {
-      showClaimMessage('Street released.', 'success');
-      refreshPins();
-    } else {
-      showClaimMessage('Failed to release.', 'error');
-    }
-  }
-
-  function showClaimMessage(msg, type) {
-    setClaimMessage({ msg, type });
-    setTimeout(() => setClaimMessage(null), 3000);
-  }
-
-  const myClaims = streetClaims.filter(c => c.rep_id === user?.id);
   const showGeoWarning = totalKnocks > 0 && pinCount === 0;
   const sheetOpen = selectedPin !== null;
 
@@ -408,59 +342,7 @@ export default function MapTab({ user, repName, isActive }) {
         )}
       </div>
 
-      {/* ── Claim Message Toast ── */}
-      {claimMessage && (
-        <div className={`claim-toast ${claimMessage.type}`}>
-          {claimMessage.msg}
-        </div>
-      )}
 
-      {/* ── Street Claims Panel (Team View) ── */}
-      {mapView === 'TEAM' && (
-        <div className="claims-panel">
-          <div className="claims-panel-header">
-            <span>Street Claims</span>
-            <button className="claim-street-btn" onClick={handleClaimCurrentStreet}>
-              + Claim Street
-            </button>
-          </div>
-
-          {streetClaims.length === 0 ? (
-            <div className="claims-empty">No streets claimed today.</div>
-          ) : (
-            <div className="claims-list">
-              {streetClaims.map(claim => {
-                const isMine = claim.rep_id === user?.id;
-                const claimCount = streetClaims.filter(c => c.street_name === claim.street_name).length;
-                return (
-                  <div className={`claim-item ${isMine ? 'mine' : ''}`} key={claim.id}>
-                    <div className="claim-info">
-                      <span className="claim-street">{claim.street_name}</span>
-                      <span className="claim-rep">{isMine ? 'You' : claim.rep_name || 'Teammate'}</span>
-                    </div>
-                    <div className="claim-meta">
-                      <span className={`claim-slots ${claimCount >= 2 ? 'full' : ''}`}>
-                        {claimCount}/2
-                      </span>
-                      {isMine && (
-                        <button className="claim-release-btn" onClick={() => handleReleaseClaim(claim.id)}>
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {myClaims.length > 0 && (
-            <div className="my-claims-summary">
-              You claimed: {myClaims.map(c => c.street_name).join(', ')}
-            </div>
-          )}
-        </div>
-      )}
 
       {showGeoWarning && (
         <div className="map-geo-warning">
