@@ -303,6 +303,17 @@ export default function MapTab({ user, repName, isActive }) {
   }, [mapReady, refreshPins, isActive]);
 
   function handleRecenter() {
+    if (!mapRef.current) return;
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          mapRef.current.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 16 });
+        },
+        () => {}
+      );
+    }
+  }
+
   const showGeoWarning = totalKnocks > 0 && pinCount === 0;
   const sheetOpen = selectedPin !== null;
 
