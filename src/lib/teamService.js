@@ -89,31 +89,69 @@ export async function getTeamCoverageGeoJSON() {
 
 
 /**
- * Fetch today's leaderboard stats for all reps.
- * Returns array of { rep_id, rep_name, doors, convos, sales, close_rate }, sorted by sales.
+ * Fetch leaderboard stats for a given date (or week).
+ * @param {string} dateStr - 'TODAY', a 'YYYY-MM-DD' string, or 'WEEK'
+ * Returns array of { rep_id, rep_name, doors, convos, sales, close_rate, dph }, sorted by sales.
  */
-export async function getTeamStats() {
-  const todayStr = new Date().toISOString().split('T')[0];
+export async function getTeamStats(dateStr = 'TODAY') {
+  let startISO, endISO;
 
-  const { data: events, error } = await supabase
-    .from('events')
-    .select('rep_id, payload')
-    .eq('type', 'KNOCK')
-    .gte('created_at', todayStr + 'T00:00:00.000Z');
+  if (dateStr === 'WEEK') {
+    // Monday of current week
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun
+    const diff = day === 0 ? 6 : day - 1; // days since Monday
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - diff);
+    startISO = monday.toISOString().split('T')[0] + 'T00:00:00.000Z';
+    endISO = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString().split('T')[0] + 'T00:00:00.000Z';
+  } else {
+    const d = dateStr === 'TODAY' ? new Date().toISOString().split('T')[0] : dateStr;
+    startISO = d + 'T00:00:00.000Z';
+    const next = new Date(d + 'T00:00:00.000Z');
+    next.setDate(next.getDate() + 1);
+    endISO = next.toISOString().split('T')[0] + 'T00:00:00.000Z';
+  }
 
-  if (error || !events) {
-    console.error('[TeamService] Failed to fetch team stats:', error);
+  // Fetch knocks + session events in parallel
+  const [knockRes, sessionRes, repsRes] = await Promise.all([
+    supabase.from('events').select('rep_id, payload').eq('type', 'KNOCK').gte('created_at', startISO).lt('created_at', endISO),
+    supabase.from('events').select('rep_id, type, payload').in('type', ['DAY_START', 'DAY_END']).gte('created_at', startISO).lt('created_at', endISO),
+    supabase.from('reps').select('user_id, display_name'),
+  ]);
+
+  if (knockRes.error || !knockRes.data) {
+    console.error('[TeamService] Failed to fetch team stats:', knockRes.error);
     return [];
   }
 
-  const { data: reps } = await supabase.from('reps').select('user_id, display_name');
   const repNameMap = {};
-  (reps || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
+  (repsRes.data || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
+
+  // Build session hours per rep
+  const sessionHours = {};
+  const sessionStarts = {};
+  for (const row of (sessionRes.data || [])) {
+    const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const rid = row.rep_id;
+    if (row.type === 'DAY_START' && p.start_time) {
+      sessionStarts[rid] = new Date(p.start_time);
+    } else if (row.type === 'DAY_END' && p.end_time && sessionStarts[rid]) {
+      const hours = (new Date(p.end_time) - sessionStarts[rid]) / (1000 * 60 * 60);
+      sessionHours[rid] = (sessionHours[rid] || 0) + Math.max(0.01, hours);
+      delete sessionStarts[rid];
+    }
+  }
+  // For active sessions (no DAY_END yet), use now as end time
+  for (const [rid, start] of Object.entries(sessionStarts)) {
+    const hours = (new Date() - start) / (1000 * 60 * 60);
+    sessionHours[rid] = (sessionHours[rid] || 0) + Math.max(0.01, hours);
+  }
 
   const repData = {};
   const seenAddresses = {};
 
-  for (const row of events) {
+  for (const row of knockRes.data) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
     const rid = row.rep_id;
     const address = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
@@ -134,7 +172,11 @@ export async function getTeamStats() {
   }
 
   return Object.values(repData)
-    .map(r => ({ ...r, close_rate: r.doors > 0 ? ((r.sales / r.doors) * 100).toFixed(1) : '0.0' }))
+    .map(r => ({
+      ...r,
+      close_rate: r.doors > 0 ? ((r.sales / r.doors) * 100).toFixed(1) : '0.0',
+      dph: sessionHours[r.rep_id] ? (r.doors / sessionHours[r.rep_id]).toFixed(1) : null,
+    }))
     .sort((a, b) => b.sales - a.sales || b.doors - a.doors);
 }
 

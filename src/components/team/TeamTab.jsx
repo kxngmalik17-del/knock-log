@@ -60,6 +60,7 @@ export default function TeamTab({ user, repName, isActive }) {
   const [coverageCount, setCoverageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [boardDate, setBoardDate] = useState('TODAY');
 
   // Map refs
   const mapContainer = useRef(null);
@@ -68,10 +69,11 @@ export default function TeamTab({ user, repName, isActive }) {
   const coverageLoaded = useRef(false);
 
   // ── Load non-map data ──
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (dateOverride) => {
     if (!navigator.onLine) return;
+    const dateToUse = dateOverride !== undefined ? dateOverride : boardDate;
     try {
-      const [s, a] = await Promise.all([getTeamStats(), getTeamActivity()]);
+      const [s, a] = await Promise.all([getTeamStats(dateToUse), getTeamActivity()]);
       setStats(s);
       setActivityData(a);
     } catch (err) {
@@ -79,7 +81,7 @@ export default function TeamTab({ user, repName, isActive }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [boardDate]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -255,6 +257,36 @@ export default function TeamTab({ user, repName, isActive }) {
     return `${diffHrs}h ago`;
   }
 
+  // ── Date strip helpers ──
+  function getDateStrip() {
+    const days = [];
+    const today = new Date();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const iso = d.toISOString().split('T')[0];
+      const dayName = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dateLabel = i <= 1 ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      days.push({ iso, dayName, dateLabel, value: i === 0 ? 'TODAY' : iso });
+    }
+    return days;
+  }
+
+  function handleDateChange(value) {
+    setBoardDate(value);
+    setLoading(true);
+    loadData(value);
+  }
+
+  // Team totals
+  const teamTotals = stats.reduce((acc, r) => {
+    acc.doors += r.doors;
+    acc.convos += r.convos;
+    acc.sales += r.sales;
+    return acc;
+  }, { doors: 0, convos: 0, sales: 0 });
+  teamTotals.close_rate = teamTotals.doors > 0 ? ((teamTotals.sales / teamTotals.doors) * 100).toFixed(1) : '0.0';
+
   return (
     <div className="team-container">
 
@@ -299,9 +331,51 @@ export default function TeamTab({ user, repName, isActive }) {
          ════════════════════════════════════ */}
       {segment === 'LEADERBOARD' && (
         <div className="team-segment-content">
+          {/* Date Strip */}
+          <div className="board-date-strip">
+            <button
+              className={`board-date-pill ${boardDate === 'WEEK' ? 'active' : ''}`}
+              onClick={() => handleDateChange('WEEK')}
+            >This Week</button>
+            {getDateStrip().map(d => (
+              <button
+                key={d.value}
+                className={`board-date-pill ${boardDate === d.value ? 'active' : ''}`}
+                onClick={() => handleDateChange(d.value)}
+              >
+                <span className="date-pill-day">{d.dayName}</span>
+                {d.dateLabel && <span className="date-pill-date">{d.dateLabel}</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Team Totals */}
+          {!loading && stats.length > 0 && (
+            <div className="board-team-totals">
+              <div className="team-total-item">
+                <span className="team-total-val">{teamTotals.doors}</span>
+                <span className="team-total-lbl">Doors</span>
+              </div>
+              <div className="team-total-item">
+                <span className="team-total-val" style={{ color: '#3b82f6' }}>{teamTotals.convos}</span>
+                <span className="team-total-lbl">Convos</span>
+              </div>
+              <div className="team-total-item">
+                <span className="team-total-val" style={{ color: '#10b981' }}>{teamTotals.sales}</span>
+                <span className="team-total-lbl">Sales</span>
+              </div>
+              <div className="team-total-item">
+                <span className="team-total-val" style={{ color: '#f59e0b' }}>{teamTotals.close_rate}%</span>
+                <span className="team-total-lbl">Close</span>
+              </div>
+            </div>
+          )}
+
           <div className="team-section-header">
-            <h2 className="team-section-title">Today's Board</h2>
-            <button className="team-refresh-btn" onClick={loadData}>
+            <h2 className="team-section-title">
+              {boardDate === 'TODAY' ? "Today's Board" : boardDate === 'WEEK' ? 'This Week' : new Date(boardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+            </h2>
+            <button className="team-refresh-btn" onClick={() => loadData()}>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="23 4 23 10 17 10"></polyline>
                 <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
@@ -311,7 +385,6 @@ export default function TeamTab({ user, repName, isActive }) {
 
           <div className="leaderboard-list">
             {loading ? (
-              // Skeleton loaders
               [0,1,2].map(i => (
                 <div className="lb-skeleton" key={i}>
                   <div className="skel skel-circle" />
@@ -324,8 +397,8 @@ export default function TeamTab({ user, repName, isActive }) {
             ) : stats.length === 0 ? (
               <div className="leaderboard-empty">
                 <div className="leaderboard-empty-icon">📊</div>
-                <p>No activity logged today yet.</p>
-                <p style={{ fontSize: 12, marginTop: 4 }}>Start knocking and watch the board fill up.</p>
+                <p>No activity logged{boardDate === 'TODAY' ? ' today yet' : ' on this day'}.</p>
+                <p style={{ fontSize: 12, marginTop: 4 }}>{boardDate === 'TODAY' ? 'Start knocking and watch the board fill up.' : 'Try selecting a different date.'}</p>
               </div>
             ) : (
               stats.map((rep, idx) => {
@@ -357,6 +430,12 @@ export default function TeamTab({ user, repName, isActive }) {
                           <span className="lb-stat-val" style={{ color: '#10b981' }}>{rep.sales}</span>
                           <span className="lb-stat-lbl">Sales</span>
                         </div>
+                        {rep.dph && (
+                          <div className="lb-stat">
+                            <span className="lb-stat-val" style={{ color: '#f59e0b' }}>{rep.dph}</span>
+                            <span className="lb-stat-lbl">DPH</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="lb-close-rate">
