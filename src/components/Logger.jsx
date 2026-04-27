@@ -277,7 +277,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     
     if (val.trim().length > 2) {
       try {
-        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=4`);
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=4&country=ca&proximity=-79.3832,43.6532&bbox=-80.8,42.9,-78.5,44.4`);
         const data = await res.json();
         setStreetSuggestions(data.features || []);
       } catch (err) {
@@ -353,7 +353,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       setTimeout(async () => {
         try {
           const query = `${houseNum} ${street}`;
-          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1`);
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1&country=ca&proximity=-79.3832,43.6532&bbox=-80.8,42.9,-78.5,44.4`);
           const data = await res.json();
           if (data.features?.length > 0) {
             const updatedPayload = { 
