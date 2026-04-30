@@ -16,8 +16,8 @@ const CONVO_OPTIONS = [
   'BAD TIMING',
   'NEED TO THINK',
   'NOT DECISION MAKER',
-  'PRICE',
-  'NOT CONVINCED'
+  'NO SOLICITING',
+  'CONSTRUCTION'
 ];
 
 export default function Logger({ user, repName, onLogout, isActive }) {

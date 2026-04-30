@@ -17,8 +17,10 @@ const STATUS_COLORS = {
   CONVO:          '#3b82f6',
   SALE:           '#10b981',
   NOT_INTERESTED: '#ef4444',
-  CALLBACK:       '#f59e0b',
+  CALLBACK:       '#a855f7',
   THINKING:       '#60a5fa',
+  NO_SOLICITING:  '#dc2626',
+  CONSTRUCTION:   '#f59e0b',
 };
 
 const AVATAR_COLORS = [

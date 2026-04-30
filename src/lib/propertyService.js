@@ -38,6 +38,10 @@ function buildGeoJSONFromKnocks(knocks) {
         resolvedStatus = 'NOT_INTERESTED';
       } else if (p.objection_type === 'NEED TO THINK' || p.objection_type === 'NOT DECISION MAKER') {
         resolvedStatus = 'THINKING';
+      } else if (p.objection_type === 'NO SOLICITING') {
+        resolvedStatus = 'NO_SOLICITING';
+      } else if (p.objection_type === 'CONSTRUCTION') {
+        resolvedStatus = 'CONSTRUCTION';
       } else {
         resolvedStatus = 'CONVO';
       }

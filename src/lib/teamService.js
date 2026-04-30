@@ -262,5 +262,7 @@ function resolveStatus(p) {
   if (p.convo_status === 'CALLBACK' || p.objection_type === 'CALLBACK') return 'CALLBACK';
   if (p.objection_type === 'NOT INTERESTED') return 'NOT_INTERESTED';
   if (p.objection_type === 'NEED TO THINK' || p.objection_type === 'NOT DECISION MAKER') return 'THINKING';
+  if (p.objection_type === 'NO SOLICITING') return 'NO_SOLICITING';
+  if (p.objection_type === 'CONSTRUCTION') return 'CONSTRUCTION';
   return 'CONVO';
 }

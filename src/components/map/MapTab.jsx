@@ -13,8 +13,10 @@ const STATUS_COLORS = {
   'CONVO':          '#3b82f6',
   'SALE':           '#10b981',
   'NOT_INTERESTED': '#ef4444',
-  'CALLBACK':       '#f59e0b',
+  'CALLBACK':       '#a855f7',
   'THINKING':       '#60a5fa',
+  'NO_SOLICITING':  '#dc2626',
+  'CONSTRUCTION':   '#f59e0b',
 };
 
 export default function MapTab({ user, repName, isActive }) {
@@ -94,12 +96,24 @@ export default function MapTab({ user, repName, isActive }) {
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
             'THINKING', STATUS_COLORS.THINKING,
+            'NO_SOLICITING', STATUS_COLORS.NO_SOLICITING,
+            'CONSTRUCTION', STATUS_COLORS.CONSTRUCTION,
             'NO_ANSWER', STATUS_COLORS.NO_ANSWER,
             STATUS_COLORS.NO_ANSWER
           ],
-          'circle-radius': 8,
+          'circle-radius': [
+            'match', ['get', 'last_status'],
+            'NO_SOLICITING', 9,
+            'CONSTRUCTION', 9,
+            8
+          ],
           'circle-stroke-width': ['case', ['==', ['get', 'knocked_today'], 1], 3, 1],
-          'circle-stroke-color': ['case', ['==', ['get', 'knocked_today'], 1], 'rgba(255,255,255,0.8)', 'rgba(255,255,255,0.15)'],
+          'circle-stroke-color': [
+            'match', ['get', 'last_status'],
+            'NO_SOLICITING', 'rgba(220,38,38,0.6)',
+            'CONSTRUCTION', 'rgba(245,158,11,0.6)',
+            ['case', ['==', ['get', 'knocked_today'], 1], 'rgba(255,255,255,0.8)', 'rgba(255,255,255,0.15)']
+          ],
           'circle-opacity': ['case', ['==', ['get', 'knocked_today'], 1], 1, 0.7],
         }
       });
@@ -120,6 +134,8 @@ export default function MapTab({ user, repName, isActive }) {
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
             'THINKING', STATUS_COLORS.THINKING,
+            'NO_SOLICITING', STATUS_COLORS.NO_SOLICITING,
+            'CONSTRUCTION', STATUS_COLORS.CONSTRUCTION,
             'NO_ANSWER', STATUS_COLORS.NO_ANSWER,
             STATUS_COLORS.NO_ANSWER
           ],
@@ -145,6 +161,8 @@ export default function MapTab({ user, repName, isActive }) {
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
             'THINKING', STATUS_COLORS.THINKING,
+            'NO_SOLICITING', STATUS_COLORS.NO_SOLICITING,
+            'CONSTRUCTION', STATUS_COLORS.CONSTRUCTION,
             'NO_ANSWER', STATUS_COLORS.NO_ANSWER,
             STATUS_COLORS.NO_ANSWER
           ],
