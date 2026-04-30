@@ -563,8 +563,8 @@ export default function TeamTab({ user, repName, isActive }) {
                       </div>
                       <div className="feed-street">
                         {event.street_name}
-                        {isSale && sd?.phone && <span style={{ marginLeft: 8, color: '#818cf8', fontSize: 11 }}>📞 {sd.phone}</span>}
-                        {isSale && sd?.service_date && <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 11 }}>📅 {new Date(sd.service_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                        {isSale && sd?.phone && <span style={{ marginLeft: 8, color: '#818cf8', fontSize: 11 }}>{sd.phone}</span>}
+                        {isSale && sd?.service_date && <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 11 }}>{new Date(sd.service_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                       </div>
                     </div>
                     <div className="feed-time">{getTimeAgo(event.timestamp)}</div>

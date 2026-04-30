@@ -990,7 +990,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       ) : showSaleForm ? (
         <div className="sale-form-panel">
           <div className="objection-header">
-            <span>🏠 Sale Details</span>
+            <span>Sale Details</span>
             <button className="objection-cancel" onClick={() => setShowSaleForm(false)}>✕</button>
           </div>
 
@@ -1049,11 +1049,32 @@ export default function Logger({ user, repName, onLogout, isActive }) {
           </div>
 
           <div className="sale-form-section-label">Service Date</div>
+          <div className="sale-quick-totals">
+            {[
+              { label: 'Today', days: 0 },
+              { label: 'Tomorrow', days: 1 },
+              { label: '+2 Days', days: 2 },
+              { label: '+3 Days', days: 3 },
+              { label: '+1 Week', days: 7 },
+            ].map(({ label, days }) => {
+              const d = new Date();
+              d.setDate(d.getDate() + days);
+              const iso = d.toISOString().split('T')[0];
+              return (
+                <button
+                  key={label}
+                  className={`sale-quick-btn ${saleServiceDate === iso ? 'active' : ''}`}
+                  onClick={() => setSaleServiceDate(saleServiceDate === iso ? '' : iso)}
+                >{label}</button>
+              );
+            })}
+          </div>
           <input
             className="sale-form-input"
             type="date"
             value={saleServiceDate}
             onChange={e => setSaleServiceDate(e.target.value)}
+            placeholder="Or pick a specific date"
           />
 
           <button
