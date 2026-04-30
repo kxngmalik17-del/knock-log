@@ -1130,6 +1130,12 @@ body {
   color: var(--text-muted);
 }
 
+.sale-form-input[type="date"] {
+  width: auto;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
 .sale-quick-totals {
   display: flex;
   flex-wrap: wrap;
