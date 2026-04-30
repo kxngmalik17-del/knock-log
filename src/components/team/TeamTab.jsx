@@ -283,8 +283,9 @@ export default function TeamTab({ user, repName, isActive }) {
     acc.doors += r.doors;
     acc.convos += r.convos;
     acc.sales += r.sales;
+    acc.revenue += r.revenue || 0;
     return acc;
-  }, { doors: 0, convos: 0, sales: 0 });
+  }, { doors: 0, convos: 0, sales: 0, revenue: 0 });
   teamTotals.close_rate = teamTotals.doors > 0 ? ((teamTotals.sales / teamTotals.doors) * 100).toFixed(1) : '0.0';
 
   return (
@@ -368,6 +369,12 @@ export default function TeamTab({ user, repName, isActive }) {
                 <span className="team-total-val" style={{ color: '#f59e0b' }}>{teamTotals.close_rate}%</span>
                 <span className="team-total-lbl">Close</span>
               </div>
+              {teamTotals.revenue > 0 && (
+                <div className="team-total-item">
+                  <span className="team-total-val" style={{ color: '#a78bfa' }}>${teamTotals.revenue.toLocaleString()}</span>
+                  <span className="team-total-lbl">Revenue</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -540,6 +547,7 @@ export default function TeamTab({ user, repName, isActive }) {
                 const isSale = event.status === 'SALE';
                 const isCallback = event.status === 'CALLBACK';
                 const color = isSale ? STATUS_COLORS.SALE : isCallback ? STATUS_COLORS.CALLBACK : STATUS_COLORS.CONVO;
+                const sd = event.sale_details;
                 return (
                   <div className="feed-card" key={event.id}>
                     <div className="feed-icon" style={{ background: `${color}1A`, color: color }}>
@@ -547,9 +555,17 @@ export default function TeamTab({ user, repName, isActive }) {
                     </div>
                     <div className="feed-content">
                       <div className="feed-text">
-                        <strong>{event.rep_name}</strong> got a <span style={{ color, fontWeight: 800 }}>{event.status}</span>
+                        {isSale && sd ? (
+                          <><strong>{event.rep_name}</strong> closed <span style={{ color: '#10b981', fontWeight: 800 }}>{sd.homeowner_name}</span>{sd.job_total ? <span style={{ color: '#a78bfa', fontWeight: 700 }}> · {sd.job_total}</span> : ''}{sd.payment_method ? <span style={{ color: '#8888a0', fontWeight: 500 }}> ({sd.payment_method})</span> : ''}</>
+                        ) : (
+                          <><strong>{event.rep_name}</strong> got a <span style={{ color, fontWeight: 800 }}>{event.status}</span></>
+                        )}
                       </div>
-                      <div className="feed-street">{event.street_name}</div>
+                      <div className="feed-street">
+                        {event.street_name}
+                        {isSale && sd?.phone && <span style={{ marginLeft: 8, color: '#818cf8', fontSize: 11 }}>📞 {sd.phone}</span>}
+                        {isSale && sd?.service_date && <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 11 }}>📅 {new Date(sd.service_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                      </div>
                     </div>
                     <div className="feed-time">{getTimeAgo(event.timestamp)}</div>
                   </div>

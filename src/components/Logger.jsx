@@ -40,6 +40,17 @@ export default function Logger({ user, repName, onLogout, isActive }) {
   const [showCallbackPicker, setShowCallbackPicker] = useState(false);
   const [callbackTime, setCallbackTime] = useState('');
 
+  // Sale form state
+  const [showSaleForm, setShowSaleForm] = useState(false);
+  const [saleHomeownerName, setSaleHomeownerName] = useState('');
+  const [salePhone, setSalePhone] = useState('');
+  const [saleEmail, setSaleEmail] = useState('');
+  const [saleJobTotal, setSaleJobTotal] = useState('');
+  const [salePayment, setSalePayment] = useState('');
+  const [saleServiceDate, setSaleServiceDate] = useState('');
+  const SALE_QUICK_TOTALS = ['$150', '$200', '$300', '$400', '$500', '$600'];
+  const PAYMENT_METHODS = ['Cash', 'E-Transfer', 'Credit', 'Invoice'];
+
   const [logging, setLogging] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [flashOutcome, setFlashOutcome] = useState(null);
@@ -304,7 +315,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     setStreetSuggestions([]);
   }
 
-  async function logKnock(outcomeType, convoOpt = null, cbTime = null) {
+  async function logKnock(outcomeType, convoOpt = null, cbTime = null, saleDetails = null) {
     if (dayState !== 'ACTIVE') return;
     if (!street || !houseNum) {
       setError('Set street & house number first');
@@ -343,6 +354,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       callback_time: cbFinal,
       lat: geoRef.current.lat || streetCoords?.lat,
       lng: geoRef.current.lng || streetCoords?.lng,
+      ...(saleDetails ? { sale_details: saleDetails } : {}),
     };
 
     // LOCAL WRITE GUARANTEE (Appends instantly regardless of network)
@@ -383,6 +395,13 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     setShowObjections(false);
     setShowCallbackPicker(false);
     setCallbackTime('');
+    setShowSaleForm(false);
+    setSaleHomeownerName('');
+    setSalePhone('');
+    setSaleEmail('');
+    setSaleJobTotal('');
+    setSalePayment('');
+    setSaleServiceDate('');
     setLogging(false);
     
     // Unshift into events to maintain reverse chronology
@@ -392,9 +411,25 @@ export default function Logger({ user, repName, onLogout, isActive }) {
   function handleOutcome(outcomeType) {
     if (outcomeType === 'CONVO') {
       setShowObjections(true);
+    } else if (outcomeType === 'SALE') {
+      // Intercept SALE to collect homeowner details first
+      setShowSaleForm(true);
     } else {
       logKnock(outcomeType);
     }
+  }
+
+  function submitSaleForm() {
+    if (!saleHomeownerName.trim() || !salePhone.trim()) return;
+    const saleDetails = {
+      homeowner_name: saleHomeownerName.trim(),
+      phone: salePhone.trim(),
+      email: saleEmail.trim() || null,
+      job_total: saleJobTotal || null,
+      payment_method: salePayment || null,
+      service_date: saleServiceDate || null,
+    };
+    logKnock('SALE', null, null, saleDetails);
   }
 
   function handleConvoOption(opt) {
@@ -952,7 +987,85 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             </button>
           </div>
         </div>
+      ) : showSaleForm ? (
+        <div className="sale-form-panel">
+          <div className="objection-header">
+            <span>🏠 Sale Details</span>
+            <button className="objection-cancel" onClick={() => setShowSaleForm(false)}>✕</button>
+          </div>
+
+          {/* Section A: Homeowner */}
+          <div className="sale-form-section-label">Homeowner</div>
+          <input
+            className="sale-form-input"
+            type="text"
+            placeholder="Full Name *"
+            value={saleHomeownerName}
+            onChange={e => setSaleHomeownerName(e.target.value)}
+          />
+          <input
+            className="sale-form-input"
+            type="tel"
+            placeholder="Phone Number *"
+            value={salePhone}
+            onChange={e => setSalePhone(e.target.value)}
+          />
+          <input
+            className="sale-form-input"
+            type="email"
+            placeholder="Email (optional)"
+            value={saleEmail}
+            onChange={e => setSaleEmail(e.target.value)}
+          />
+
+          {/* Section C: Financials */}
+          <div className="sale-form-section-label">Job Total</div>
+          <div className="sale-quick-totals">
+            {SALE_QUICK_TOTALS.map(t => (
+              <button
+                key={t}
+                className={`sale-quick-btn ${saleJobTotal === t ? 'active' : ''}`}
+                onClick={() => setSaleJobTotal(saleJobTotal === t ? '' : t)}
+              >{t}</button>
+            ))}
+          </div>
+          <input
+            className="sale-form-input"
+            type="text"
+            placeholder="Custom amount (e.g. $275)"
+            value={SALE_QUICK_TOTALS.includes(saleJobTotal) ? '' : saleJobTotal}
+            onChange={e => setSaleJobTotal(e.target.value)}
+          />
+
+          <div className="sale-form-section-label">Payment Method</div>
+          <div className="sale-quick-totals">
+            {PAYMENT_METHODS.map(m => (
+              <button
+                key={m}
+                className={`sale-quick-btn ${salePayment === m ? 'active' : ''}`}
+                onClick={() => setSalePayment(salePayment === m ? '' : m)}
+              >{m}</button>
+            ))}
+          </div>
+
+          <div className="sale-form-section-label">Service Date</div>
+          <input
+            className="sale-form-input"
+            type="date"
+            value={saleServiceDate}
+            onChange={e => setSaleServiceDate(e.target.value)}
+          />
+
+          <button
+            className="sale-form-submit"
+            disabled={logging || !saleHomeownerName.trim() || !salePhone.trim()}
+            onClick={submitSaleForm}
+          >
+            {logging ? 'LOGGING...' : '✅ LOG SALE'}
+          </button>
+        </div>
       ) : showObjections ? (
+
         <div className="objection-panel">
           <div className="objection-header">
             <span>Select Result</span>

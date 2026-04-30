@@ -1084,6 +1084,108 @@ body {
 }
 
 /* ========================================
+   Sale Form Panel
+   ======================================== */
+
+.sale-form-panel {
+  background: var(--bg-card);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+  animation: slideDown 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sale-form-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.sale-form-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.sale-form-input:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+
+.sale-form-input::placeholder {
+  color: var(--text-muted);
+}
+
+.sale-quick-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sale-quick-btn {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sale-quick-btn.active {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #10b981;
+}
+
+.sale-quick-btn:active {
+  transform: scale(0.95);
+}
+
+.sale-form-submit {
+  width: 100%;
+  padding: 16px;
+  margin-top: 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+  transition: transform 0.1s, opacity 0.2s;
+}
+
+.sale-form-submit:active {
+  transform: scale(0.97);
+}
+
+.sale-form-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ========================================
    Export / Downloader
    ======================================== */
 .download-btn {

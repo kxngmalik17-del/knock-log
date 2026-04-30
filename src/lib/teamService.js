@@ -167,8 +167,14 @@ export async function getTeamStats(dateStr = 'TODAY') {
       seenAddresses[rid].add(address);
       repData[rid].doors++;
     }
-    if (resolvedStatus === 'SALE') repData[rid].sales++;
-    else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) repData[rid].convos++;
+    if (resolvedStatus === 'SALE') {
+      repData[rid].sales++;
+      // Accumulate revenue from sale_details if present
+      if (p.sale_details?.job_total) {
+        const num = parseFloat(String(p.sale_details.job_total).replace(/[^0-9.]/g, ''));
+        if (!isNaN(num)) repData[rid].revenue = (repData[rid].revenue || 0) + num;
+      }
+    } else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) repData[rid].convos++;
   }
 
   return Object.values(repData)
@@ -176,6 +182,7 @@ export async function getTeamStats(dateStr = 'TODAY') {
       ...r,
       close_rate: r.doors > 0 ? ((r.sales / r.doors) * 100).toFixed(1) : '0.0',
       dph: sessionHours[r.rep_id] ? (r.doors / sessionHours[r.rep_id]).toFixed(1) : null,
+      revenue: r.revenue || 0,
     }))
     .sort((a, b) => b.sales - a.sales || b.doors - a.doors);
 }
@@ -219,13 +226,15 @@ export async function getTeamActivity() {
 
     // 1. Build Live Feed (Notable events only)
     if (['SALE', 'CONVO', 'CALLBACK'].includes(status)) {
+      const sd = p.sale_details || null;
       feed.push({
-        id: row.created_at + rid, // unique enough for a key
+        id: row.created_at + rid,
         rep_id: rid,
         rep_name: repName,
         status: status,
         street_name: streetName,
-        timestamp: timestamp
+        timestamp: timestamp,
+        sale_details: sd,
       });
     }
 
