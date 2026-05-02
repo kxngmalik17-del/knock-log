@@ -203,8 +203,12 @@ export default function TeamTab({ user, repName, isActive }) {
 
       // Long-press (600ms): confirm + delete all team knocks at that address
       const startCoverageLongPress = (e) => {
-        if (!e.features || !e.features.length) return;
-        const props = e.features[0].properties;
+        // e.features may be absent on touchstart — fall back to queryRenderedFeatures
+        const features = (e.features && e.features.length)
+          ? e.features
+          : map.queryRenderedFeatures(e.point, { layers: ['coverage-point'] });
+        if (!features || !features.length) return;
+        const props = features[0].properties;
         coverageLongPressRef.current = setTimeout(async () => {
           coverageLongPressRef.current = null;
           if (window.confirm(`Permanently delete all team knocks at ${props.address}?`)) {
@@ -225,8 +229,6 @@ export default function TeamTab({ user, repName, isActive }) {
       map.on('mouseup',    'coverage-point', cancelCoverageLongPress);
       map.on('touchstart', 'coverage-point', startCoverageLongPress);
       map.on('touchend',   'coverage-point', cancelCoverageLongPress);
-      map.on('mousemove', cancelCoverageLongPress);
-      map.on('touchmove', cancelCoverageLongPress);
 
       map.on('mouseenter', 'coverage-point', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'coverage-point', () => { map.getCanvas().style.cursor = ''; });
@@ -736,25 +738,69 @@ export default function TeamTab({ user, repName, isActive }) {
       {operationsSale && (
         <div className="ops-modal-overlay" onClick={() => setOperationsSale(null)}>
           <div className="ops-modal-content" onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
             <div className="ops-modal-header">
-              <h3>Operations Details</h3>
+              <div>
+                <h3 style={{ marginBottom: 2 }}>{operationsSale.details.homeowner_name || 'Anonymous Customer'}</h3>
+                <div style={{ fontSize: 12, color: '#8888a0', fontWeight: 500 }}>{operationsSale.address}</div>
+              </div>
               <button className="ops-close-btn" onClick={() => setOperationsSale(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             </div>
-            
+
+            {/* Sale Details */}
+            <div className="ops-section-label">Sale Details</div>
+            <div className="ops-sale-details-grid">
+              <div className="ops-sale-detail">
+                <span className="ops-sale-lbl">Rep</span>
+                <span className="ops-sale-val">{operationsSale.rep_name}</span>
+              </div>
+              <div className="ops-sale-detail">
+                <span className="ops-sale-lbl">Date</span>
+                <span className="ops-sale-val">{new Date(operationsSale.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}</span>
+              </div>
+              {operationsSale.details.phone && (
+                <div className="ops-sale-detail">
+                  <span className="ops-sale-lbl">Phone</span>
+                  <span className="ops-sale-val" style={{ color: '#818cf8' }}>{operationsSale.details.phone}</span>
+                </div>
+              )}
+              {operationsSale.details.email && (
+                <div className="ops-sale-detail">
+                  <span className="ops-sale-lbl">Email</span>
+                  <span className="ops-sale-val" style={{ color: '#818cf8', fontSize: 10 }}>{operationsSale.details.email}</span>
+                </div>
+              )}
+              {operationsSale.details.service_date && (
+                <div className="ops-sale-detail">
+                  <span className="ops-sale-lbl">Service</span>
+                  <span className="ops-sale-val" style={{ color: '#f59e0b' }}>{new Date(operationsSale.details.service_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                </div>
+              )}
+              {operationsSale.details.payment_method && (
+                <div className="ops-sale-detail">
+                  <span className="ops-sale-lbl">Pay</span>
+                  <span className="ops-sale-val">{operationsSale.details.payment_method}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Operations Breakdown */}
+            <div className="ops-section-label" style={{ marginTop: 20 }}>Operations Breakdown</div>
             {(() => {
               const totalValStr = String(operationsSale.details?.job_total || '0').replace(/[^0-9.]/g, '');
               const jobTotal = parseFloat(totalValStr);
               if (isNaN(jobTotal) || jobTotal <= 0) {
-                return <p style={{ color: '#8888a0', textAlign: 'center', marginTop: 20 }}>No valid job total found for this sale.</p>;
+                return <p style={{ color: '#8888a0', textAlign: 'center', marginTop: 12, fontSize: 13 }}>No job total on record.</p>;
               }
-              
+
               const commissionPct = jobTotal <= 398 ? 0.25 : 0.40;
               const commissionVal = jobTotal * commissionPct;
               const labourCost = 40;
               const companyProfit = jobTotal - commissionVal - labourCost;
-              
+
               return (
                 <div className="ops-calc-grid">
                   <div className="ops-calc-row">
@@ -765,7 +811,7 @@ export default function TeamTab({ user, repName, isActive }) {
                     <span>Commission ({commissionPct * 100}%)</span>
                     <span style={{ color: '#10b981' }}>-${commissionVal.toFixed(2)}</span>
                   </div>
-                  <div className="ops-calc-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12, marginBottom: 12 }}>
+                  <div className="ops-calc-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12, marginBottom: 4 }}>
                     <span>Labour Cost</span>
                     <span style={{ color: '#ef4444' }}>-${labourCost.toFixed(2)}</span>
                   </div>

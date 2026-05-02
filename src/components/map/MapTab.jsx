@@ -235,8 +235,6 @@ export default function MapTab({ user, repName, isActive }) {
       map.on('touchstart', 'today-glow',        startLongPress);
       map.on('touchend',   'unclustered-point', cancelLongPress);
       map.on('touchend',   'today-glow',        cancelLongPress);
-      map.on('mousemove', cancelLongPress);
-      map.on('touchmove', cancelLongPress);
 
       const handleTeamPinClick = (e) => {
         const props = e.features[0].properties;
