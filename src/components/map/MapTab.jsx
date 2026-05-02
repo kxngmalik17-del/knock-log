@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { getActiveSessionGeoJSON } from '../../lib/propertyService';
-import { getTeamGeoJSON } from '../../lib/teamService';
+import { getTeamGeoJSON, getTeamCoverageGeoJSON } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import '../mapStyles.css';
 
@@ -24,11 +24,13 @@ export default function MapTab({ user, repName, isActive }) {
   const mapRef = useRef(null);
   const [pinCount, setPinCount] = useState(0);
   const [teamPinCount, setTeamPinCount] = useState(0);
+  const [coverageCount, setCoverageCount] = useState(0);
   const [totalKnocks, setTotalKnocks] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
-  const [mapView, setMapView] = useState('MY'); // 'MY' or 'TEAM'
+  const [mapView, setMapView] = useState('MY'); // 'MY' | 'TEAM' | 'COVERAGE'
+  const coverageLoaded = useRef(false);
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -171,7 +173,7 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-stroke-color': 'rgba(255,255,255,0.08)',
           'circle-opacity': 0.3,
         },
-        layout: { visibility: 'none' } // hidden by default (My View)
+        layout: { visibility: 'none' }
       });
 
       map.addLayer({
@@ -184,6 +186,56 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-stroke-width': 1,
           'circle-stroke-color': 'rgba(255,255,255,0.06)',
           'circle-stroke-opacity': 0.5,
+        },
+        layout: { visibility: 'none' }
+      });
+
+      // ── COVERAGE SOURCE ──
+      map.addSource('team-coverage', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addLayer({
+        id: 'coverage-glow',
+        type: 'circle',
+        source: 'team-coverage',
+        paint: {
+          'circle-radius': 13,
+          'circle-color': 'transparent',
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': [
+            'match', ['get', 'last_status'],
+            'SALE', STATUS_COLORS.SALE,
+            'CONVO', STATUS_COLORS.CONVO,
+            'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
+            'CALLBACK', STATUS_COLORS.CALLBACK,
+            'THINKING', STATUS_COLORS.THINKING,
+            STATUS_COLORS.NO_ANSWER,
+          ],
+          'circle-stroke-opacity': 0.25,
+        },
+        layout: { visibility: 'none' }
+      });
+
+      map.addLayer({
+        id: 'coverage-point',
+        type: 'circle',
+        source: 'team-coverage',
+        paint: {
+          'circle-color': [
+            'match', ['get', 'last_status'],
+            'SALE', STATUS_COLORS.SALE,
+            'CONVO', STATUS_COLORS.CONVO,
+            'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
+            'CALLBACK', STATUS_COLORS.CALLBACK,
+            'THINKING', STATUS_COLORS.THINKING,
+            STATUS_COLORS.NO_ANSWER,
+          ],
+          'circle-radius': 7,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': 'rgba(0,0,0,0.4)',
+          'circle-opacity': 0.85,
         },
         layout: { visibility: 'none' }
       });
@@ -211,20 +263,31 @@ export default function MapTab({ user, repName, isActive }) {
         const timeStr = props.last_knocked_at
           ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
           : '';
-
         map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
-
-        setSelectedPin({
-          ...props,
-          statusLabel,
-          timeStr,
-          visitsNum: 1,
-          isGhost: true,
-        });
+        setSelectedPin({ ...props, statusLabel, timeStr, visitsNum: 1, isGhost: true });
       };
 
       map.on('click', 'team-ghost-point', handleTeamPinClick);
 
+      // Coverage popup
+      map.on('click', 'coverage-point', (e) => {
+        const props = e.features[0].properties;
+        const coords = e.features[0].geometry.coordinates.slice();
+        const timeStr = props.last_knocked_at
+          ? new Date(props.last_knocked_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+          : '';
+        const statusLabel = (props.last_status || '').replace(/_/g, ' ');
+        new mapboxgl.Popup({ offset: 12, closeButton: false })
+          .setLngLat(coords)
+          .setHTML(`
+            <div class="popup-address">${props.address || 'Unknown Address'}</div>
+            <span class="popup-status ${props.last_status || ''}">${statusLabel}</span>
+            <div class="popup-time">${timeStr}</div>
+          `)
+          .addTo(map);
+      });
+
+      // Dismiss bottom sheet when clicking empty space (not coverage popups)
       map.on('click', (e) => {
         const features = map.queryRenderedFeatures(e.point, {
           layers: ['unclustered-point', 'today-glow', 'team-ghost-point']
@@ -243,6 +306,8 @@ export default function MapTab({ user, repName, isActive }) {
       map.on('mouseleave', 'today-glow', cursorDefault);
       map.on('mouseenter', 'team-ghost-point', cursorPointer);
       map.on('mouseleave', 'team-ghost-point', cursorDefault);
+      map.on('mouseenter', 'coverage-point', cursorPointer);
+      map.on('mouseleave', 'coverage-point', cursorDefault);
 
       mapRef.current = map;
       setMapReady(true);
@@ -251,33 +316,79 @@ export default function MapTab({ user, repName, isActive }) {
     return () => map.remove();
   }, []);
 
-  // ── Toggle Ghost Layer Visibility ──
+  // ── Toggle layer visibility based on mapView ──
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
-    const visibility = mapView === 'TEAM' ? 'visible' : 'none';
-    mapRef.current.setLayoutProperty('team-ghost-point', 'visibility', visibility);
-    mapRef.current.setLayoutProperty('team-ghost-ring', 'visibility', visibility);
+    const map = mapRef.current;
+
+    const ghostVis    = mapView === 'TEAM'     ? 'visible' : 'none';
+    const coverageVis = mapView === 'COVERAGE' ? 'visible' : 'none';
+
+    map.setLayoutProperty('team-ghost-point', 'visibility', ghostVis);
+    map.setLayoutProperty('team-ghost-ring',  'visibility', ghostVis);
+    map.setLayoutProperty('coverage-point',   'visibility', coverageVis);
+    map.setLayoutProperty('coverage-glow',    'visibility', coverageVis);
   }, [mapView, mapReady]);
+
+  // ── Load coverage data (paginated) ──
+  const loadCoverage = useCallback(async (shouldFit = false) => {
+    if (!mapRef.current || !mapReady) return;
+    try {
+      const geo = await getTeamCoverageGeoJSON();
+      const source = mapRef.current.getSource('team-coverage');
+      if (source) {
+        source.setData(geo);
+        setCoverageCount(geo.features.length);
+
+        if (shouldFit && geo.features.length > 0) {
+          const lngs = geo.features.map(f => f.geometry.coordinates[0]);
+          const lats = geo.features.map(f => f.geometry.coordinates[1]);
+          mapRef.current.fitBounds(
+            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+            { padding: 48, maxZoom: 15, duration: 800 }
+          );
+        }
+      }
+    } catch (err) {
+      console.error('[MapTab] loadCoverage error:', err);
+    }
+  }, [mapReady]);
+
+  // ── Load coverage once when switching to COVERAGE view ──
+  useEffect(() => {
+    if (!mapReady || mapView !== 'COVERAGE') return;
+    if (!coverageLoaded.current) {
+      coverageLoaded.current = true;
+      loadCoverage(true);
+    }
+  }, [mapView, mapReady, loadCoverage]);
+
+  // ── Poll coverage silently every 60s while in coverage view ──
+  useEffect(() => {
+    if (!mapReady || mapView !== 'COVERAGE') return;
+    const id = setInterval(() => loadCoverage(false), 60000);
+    return () => clearInterval(id);
+  }, [mapView, mapReady, loadCoverage]);
 
   // ── Refresh Pins ──
   const refreshPins = useCallback(async () => {
     if (!mapRef.current || !mapReady) return;
     try {
       const geojson = await getActiveSessionGeoJSON();
-      
+
       const source = mapRef.current.getSource('properties');
       if (source) {
         source.setData(geojson);
         setPinCount(geojson.features.length);
       }
-      
+
       // Update total knocks for the active session warning logic
       const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
       if (rsStart.length > 0) {
         const sessData = JSON.parse(rsStart[0].payload);
         const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK'`;
         const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessData.session_id);
-        
+
         const uniqueKeys = new Set();
         knocks.forEach(r => {
           const p = JSON.parse(r.payload);
@@ -289,7 +400,7 @@ export default function MapTab({ user, repName, isActive }) {
         setTotalKnocks(0);
       }
 
-      // Fetch team data
+      // Fetch team ghost data
       if (navigator.onLine && user?.id) {
         const teamGeo = await getTeamGeoJSON(user.id);
         const teamSource = mapRef.current.getSource('team-properties');
@@ -304,18 +415,22 @@ export default function MapTab({ user, repName, isActive }) {
     }
   }, [mapReady, user?.id]);
 
-  // ── Refresh pins only when tab is active (battery optimization) ──
+  // ── Refresh pins only when tab is active ──
   useEffect(() => {
     if (!mapReady) return;
-    if (!isActive) return; // Don't poll when tab is hidden
+    if (!isActive) return;
 
-    refreshPins(); // Immediate refresh when tab becomes active
-    const id = setInterval(refreshPins, 15000); // 15s instead of 5s
+    refreshPins();
+    const id = setInterval(refreshPins, 15000);
     return () => clearInterval(id);
   }, [mapReady, refreshPins, isActive]);
 
   function handleRecenter() {
     if (!mapRef.current) return;
+    if (mapView === 'COVERAGE') {
+      loadCoverage(true);
+      return;
+    }
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -326,7 +441,7 @@ export default function MapTab({ user, repName, isActive }) {
     }
   }
 
-  const showGeoWarning = totalKnocks > 0 && pinCount === 0;
+  const showGeoWarning = totalKnocks > 0 && pinCount === 0 && mapView === 'MY';
   const sheetOpen = selectedPin !== null;
 
   return (
@@ -348,24 +463,38 @@ export default function MapTab({ user, repName, isActive }) {
           Team View
           {teamPinCount > 0 && <span className="team-badge">{teamPinCount}</span>}
         </button>
+        <button
+          className={`map-toggle-btn ${mapView === 'COVERAGE' ? 'active' : ''}`}
+          onClick={() => setMapView('COVERAGE')}
+        >
+          Coverage
+          {coverageCount > 0 && mapView === 'COVERAGE' && <span className="team-badge">{coverageCount.toLocaleString()}</span>}
+        </button>
       </div>
 
       {/* ── Pin Count ── */}
-      <div className="map-pin-count" style={{ left: 16, top: 60 }}>
-        <span>{pinCount}</span> {mapView === 'MY' ? 'my properties' : 'my properties'}
-        {mapView === 'TEAM' && teamPinCount > 0 && (
-          <span style={{ marginLeft: 8, color: '#a78bfa', fontSize: 10 }}>
-            + {teamPinCount} team
-          </span>
-        )}
-        {totalKnocks > 0 && pinCount < totalKnocks && (
-          <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 10 }}>
-            ({totalKnocks - pinCount} without GPS)
-          </span>
-        )}
-      </div>
+      {mapView !== 'COVERAGE' && (
+        <div className="map-pin-count" style={{ left: 16, top: 60 }}>
+          <span>{pinCount}</span> my properties
+          {mapView === 'TEAM' && teamPinCount > 0 && (
+            <span style={{ marginLeft: 8, color: '#a78bfa', fontSize: 10 }}>
+              + {teamPinCount} team
+            </span>
+          )}
+          {totalKnocks > 0 && pinCount < totalKnocks && (
+            <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 10 }}>
+              ({totalKnocks - pinCount} without GPS)
+            </span>
+          )}
+        </div>
+      )}
 
-
+      {/* ── Coverage count pill ── */}
+      {mapView === 'COVERAGE' && coverageCount > 0 && (
+        <div className="map-pin-count" style={{ left: 16, top: 60 }}>
+          <span>{coverageCount.toLocaleString()}</span> all-time properties
+        </div>
+      )}
 
       {showGeoWarning && (
         <div className="map-geo-warning">
@@ -383,7 +512,19 @@ export default function MapTab({ user, repName, isActive }) {
         </div>
       )}
 
-      <button className="map-recenter-btn" onClick={handleRecenter} title="Recenter" style={{ bottom: sheetOpen ? 'calc(24px + 180px)' : '24px' }}>
+      {/* ── Coverage Legend ── */}
+      {mapView === 'COVERAGE' && (
+        <div className="map-coverage-legend">
+          {Object.entries(STATUS_COLORS).map(([key, color]) => (
+            <div className="map-legend-item" key={key}>
+              <div className="map-legend-dot" style={{ background: color }} />
+              {key.replace(/_/g, ' ')}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button className="map-recenter-btn" onClick={handleRecenter} title={mapView === 'COVERAGE' ? 'Fit to footprint' : 'Recenter'} style={{ bottom: sheetOpen ? 'calc(24px + 180px)' : '24px' }}>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10"></circle>
           <circle cx="12" cy="12" r="3"></circle>
@@ -414,7 +555,7 @@ export default function MapTab({ user, repName, isActive }) {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
             </div>
-            
+
             <div className="pin-sheet-status-row">
               <div className="pin-sheet-status-badge" style={{
                 background: STATUS_COLORS[selectedPin.last_status] + '33',
@@ -428,7 +569,7 @@ export default function MapTab({ user, repName, isActive }) {
                 </div>
               )}
             </div>
-            
+
             <div className="pin-sheet-time">
               Last knocked: {selectedPin.timeStr}
             </div>

@@ -1,17 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import mapboxgl from 'mapbox-gl';
 import {
   getTeamStats,
-  getTeamCoverageGeoJSON,
   getTeamActivity,
   getAllSales,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
 import '../mapStyles.css';
-
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
-const MAPBOX_STYLE = 'mapbox://styles/xmalikjc/cmnwoppdm00ck01s76r6ccva7';
 
 const STATUS_COLORS = {
   NO_ANSWER:      '#6b7280',
@@ -57,21 +52,15 @@ function CloseRing({ pct, size = 44 }) {
 }
 
 export default function TeamTab({ user, repName, isActive }) {
-  const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'MAP' | 'ACTIVITY'
+  const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'ACTIVITY' | 'SALES'
   const [stats, setStats] = useState([]);
   const [activityData, setActivityData] = useState({ feed: [], radar: [] });
   const [allSales, setAllSales] = useState([]);
   const [operationsSale, setOperationsSale] = useState(null);
-  const [coverageCount, setCoverageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [boardDate, setBoardDate] = useState('TODAY');
 
-  // Map refs
-  const mapContainer = useRef(null);
-  const mapRef = useRef(null);
-  const [mapReady, setMapReady] = useState(false);
-  const coverageLoaded = useRef(false);
   const longPressTimerRef = useRef(null);
 
   // ── Handlers ──
@@ -114,153 +103,6 @@ export default function TeamTab({ user, repName, isActive }) {
     const id = setInterval(loadData, 30000); // refresh every 30s when active
     return () => clearInterval(id);
   }, [isActive, loadData]);
-
-  // ── Initialize Mapbox for Coverage Map ──
-  useEffect(() => {
-    if (mapRef.current) return; // already initialized
-
-    mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: MAPBOX_STYLE,
-      center: [-79.38, 43.65],
-      zoom: 12,
-      attributionControl: false,
-    });
-
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-
-    map.on('load', () => {
-      map.addSource('team-coverage', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-
-      // Glow ring (wider, faded outer circle)
-      map.addLayer({
-        id: 'coverage-glow',
-        type: 'circle',
-        source: 'team-coverage',
-        paint: {
-          'circle-radius': 13,
-          'circle-color': 'transparent',
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': [
-            'match', ['get', 'last_status'],
-            'SALE', STATUS_COLORS.SALE,
-            'CONVO', STATUS_COLORS.CONVO,
-            'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
-            'CALLBACK', STATUS_COLORS.CALLBACK,
-            'THINKING', STATUS_COLORS.THINKING,
-            STATUS_COLORS.NO_ANSWER,
-          ],
-          'circle-stroke-opacity': 0.25,
-        },
-      });
-
-      // Core pin
-      map.addLayer({
-        id: 'coverage-point',
-        type: 'circle',
-        source: 'team-coverage',
-        paint: {
-          'circle-color': [
-            'match', ['get', 'last_status'],
-            'SALE', STATUS_COLORS.SALE,
-            'CONVO', STATUS_COLORS.CONVO,
-            'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
-            'CALLBACK', STATUS_COLORS.CALLBACK,
-            'THINKING', STATUS_COLORS.THINKING,
-            STATUS_COLORS.NO_ANSWER,
-          ],
-          'circle-radius': 7,
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': 'rgba(0,0,0,0.4)',
-          'circle-opacity': 0.85,
-        },
-      });
-
-      // Click: show info popup
-      map.on('click', 'coverage-point', (e) => {
-        const props = e.features[0].properties;
-        const coords = e.features[0].geometry.coordinates.slice();
-        const timeStr = props.last_knocked_at
-          ? new Date(props.last_knocked_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-          : '';
-        const statusLabel = (props.last_status || '').replace(/_/g, ' ');
-        new mapboxgl.Popup({ offset: 12, closeButton: false })
-          .setLngLat(coords)
-          .setHTML(`
-            <div class="popup-address">${props.address || 'Unknown Address'}</div>
-            <span class="popup-status ${props.last_status || ''}">${statusLabel}</span>
-            <div class="popup-time">${timeStr}</div>
-          `)
-          .addTo(map);
-      });
-
-      map.on('mouseenter', 'coverage-point', () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', 'coverage-point', () => { map.getCanvas().style.cursor = ''; });
-
-      mapRef.current = map;
-      setMapReady(true);
-    });
-
-    return () => {
-      map.remove();
-      mapRef.current = null;
-      setMapReady(false);
-      coverageLoaded.current = false;
-    };
-  }, []);
-
-  // ── Resize map when segment switches to MAP ──
-  useEffect(() => {
-    if (segment === 'MAP' && mapRef.current) {
-      setTimeout(() => mapRef.current?.resize(), 80);
-    }
-  }, [segment]);
-
-  // ── Load coverage data ──
-  const loadCoverage = useCallback(async (shouldFit = false) => {
-    if (!mapRef.current || !mapReady) return;
-    try {
-      const geo = await getTeamCoverageGeoJSON();
-      const source = mapRef.current.getSource('team-coverage');
-      if (source) {
-        source.setData(geo);
-        setCoverageCount(geo.features.length);
-        
-        if (shouldFit && geo.features.length > 0) {
-          const lngs = geo.features.map(f => f.geometry.coordinates[0]);
-          const lats = geo.features.map(f => f.geometry.coordinates[1]);
-          mapRef.current.fitBounds(
-            [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-            { padding: 48, maxZoom: 15, duration: 800 }
-          );
-        }
-      }
-    } catch (err) {
-      console.error('[TeamTab] loadCoverage error:', err);
-    }
-  }, [mapReady]);
-
-  // ── Initial load coverage ──
-  useEffect(() => {
-    if (!mapReady || segment !== 'MAP' || coverageLoaded.current) return;
-    coverageLoaded.current = true;
-    loadCoverage(true);
-  }, [mapReady, segment, loadCoverage]);
-
-  // ── Poll coverage data ──
-  useEffect(() => {
-    if (!mapReady || segment !== 'MAP') return;
-    const id = setInterval(() => loadCoverage(false), 60000); // Silent refresh every 60s
-    return () => clearInterval(id);
-  }, [mapReady, segment, loadCoverage]);
-
-  function handleRecenterCoverage() {
-    loadCoverage(true);
-  }
 
   function showToast(msg, type) {
     setToast({ msg, type });
@@ -328,16 +170,6 @@ export default function TeamTab({ user, repName, isActive }) {
             <line x1="6" y1="20" x2="6" y2="14"></line>
           </svg>
           Board
-        </button>
-        <button
-          id="team-seg-map"
-          className={`team-seg-btn ${segment === 'MAP' ? 'active' : ''}`}
-          onClick={() => setSegment('MAP')}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
-          </svg>
-          Coverage
         </button>
         <button
           id="team-seg-activity"
@@ -500,47 +332,6 @@ export default function TeamTab({ user, repName, isActive }) {
           </div>
         </div>
       )}
-
-      {/* ════════════════════════════════════
-           SEGMENT: COVERAGE MAP
-         ════════════════════════════════════ */}
-      <div style={{ display: segment === 'MAP' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        <div className="team-map-header">
-          <h2 className="team-map-title">All-Time Coverage</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {coverageCount > 0 && (
-              <span className="team-map-count">{coverageCount.toLocaleString()} properties</span>
-            )}
-            <button className="team-refresh-btn" onClick={() => loadCoverage(false)} title="Refresh Coverage">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div className="team-map-canvas">
-          <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
-          <button className="map-recenter-btn team-map-recenter" onClick={handleRecenterCoverage} title="Fit to Team Footprint">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <circle cx="12" cy="12" r="3"></circle>
-              <line x1="12" y1="2" x2="12" y2="6"></line>
-              <line x1="12" y1="18" x2="12" y2="22"></line>
-              <line x1="2" y1="12" x2="6" y2="12"></line>
-              <line x1="18" y1="12" x2="22" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-        <div className="team-map-legend">
-          {Object.entries(STATUS_COLORS).map(([key, color]) => (
-            <div className="legend-item" key={key}>
-              <div className="legend-dot" style={{ background: color }} />
-              {key.replace(/_/g, ' ')}
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* ════════════════════════════════════
            SEGMENT: ACTIVITY (Feed & Radar)
