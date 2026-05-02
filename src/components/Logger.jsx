@@ -91,18 +91,22 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         if (!events) { setStatsLoading(false); return; }
 
         const todayStr = new Date().toISOString().split('T')[0];
-        const todayStart = todayStr + 'T00:00:00.000Z';
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yestStr = yesterday.toISOString().split('T')[0];
+        const yestStart = yestStr + 'T00:00:00.000Z';
+        const yestEnd   = todayStr + 'T00:00:00.000Z';
 
         const allSeenAddr = {};
-        const todaySeenAddr = {};
-        let allDoors = 0, allSales = 0, allRevenue = 0;
-        let todayDoors = 0, todaySales = 0;
+        const yestSeenAddr = {};
+        let allDoors = 0, allSales = 0, allCommission = 0;
+        let yestDoors = 0, yestSales = 0;
 
         for (const row of events) {
           const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
           const addr = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
           if (!addr) continue;
-          const isToday = row.created_at >= todayStart;
+          const isYest = row.created_at >= yestStart && row.created_at < yestEnd;
 
           // All-time unique doors
           if (!allSeenAddr[addr]) {
@@ -111,23 +115,26 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             if (p.outcome_type === 'SALE') {
               allSales++;
               const num = parseFloat(String(p.sale_details?.job_total || '0').replace(/[^0-9.]/g, ''));
-              if (!isNaN(num)) allRevenue += num;
+              if (!isNaN(num) && num > 0) {
+                const pct = num <= 398 ? 0.25 : 0.40;
+                allCommission += num * pct;
+              }
             }
           }
 
-          // Today unique doors
-          if (isToday && !todaySeenAddr[addr]) {
-            todaySeenAddr[addr] = p.outcome_type;
-            todayDoors++;
-            if (p.outcome_type === 'SALE') todaySales++;
+          // Yesterday unique doors
+          if (isYest && !yestSeenAddr[addr]) {
+            yestSeenAddr[addr] = p.outcome_type;
+            yestDoors++;
+            if (p.outcome_type === 'SALE') yestSales++;
           }
         }
 
         setRepStats({
-          allDoors, allSales, allRevenue,
+          allDoors, allSales, allCommission,
           allCloseRate: allDoors > 0 ? ((allSales / allDoors) * 100).toFixed(1) : '0.0',
-          todayDoors, todaySales,
-          todayCloseRate: todayDoors > 0 ? ((todaySales / todayDoors) * 100).toFixed(1) : '0.0',
+          yestDoors, yestSales,
+          yestCloseRate: yestDoors > 0 ? ((yestSales / yestDoors) * 100).toFixed(1) : '0.0',
         });
       } catch (e) {
         console.error('[Logger] loadRepStats error:', e);
@@ -672,24 +679,24 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         )}
 
         <div className="pre-session-screen">
-          {/* Today's Numbers */}
+          {/* Yesterday's Numbers */}
           <div className="pre-session-section">
-            <div className="pre-session-label">Today</div>
+            <div className="pre-session-label">Yesterday</div>
             <div className="pre-session-grid">
               {statsLoading ? (
                 [0,1,2].map(i => <div key={i} className="pre-stat-skel" />)
               ) : (
                 <>
                   <div className="pre-stat-card">
-                    <span className="pre-stat-val">{repStats?.todayDoors ?? '—'}</span>
+                    <span className="pre-stat-val">{repStats?.yestDoors ?? '—'}</span>
                     <span className="pre-stat-lbl">Doors</span>
                   </div>
                   <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#10b981' }}>{repStats?.todaySales ?? '—'}</span>
+                    <span className="pre-stat-val" style={{ color: '#10b981' }}>{repStats?.yestSales ?? '—'}</span>
                     <span className="pre-stat-lbl">Sales</span>
                   </div>
                   <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#f59e0b' }}>{repStats?.todayCloseRate ?? '—'}%</span>
+                    <span className="pre-stat-val" style={{ color: '#f59e0b' }}>{repStats?.yestCloseRate ?? '—'}%</span>
                     <span className="pre-stat-lbl">Close %</span>
                   </div>
                 </>
@@ -718,8 +725,8 @@ export default function Logger({ user, repName, onLogout, isActive }) {
                     <span className="pre-stat-lbl">Close %</span>
                   </div>
                   <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#a78bfa' }}>${repStats?.allRevenue ? repStats.allRevenue.toLocaleString() : '—'}</span>
-                    <span className="pre-stat-lbl">Revenue</span>
+                    <span className="pre-stat-val" style={{ color: '#a78bfa' }}>${repStats?.allCommission ? repStats.allCommission.toFixed(0) : '—'}</span>
+                    <span className="pre-stat-lbl">Commission</span>
                   </div>
                 </>
               )}
