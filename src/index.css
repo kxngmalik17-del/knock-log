@@ -582,6 +582,7 @@ body {
    START DAY Screen
    ======================================== */
 
+/* Old .start-day-screen kept for safety but replaced by .pre-session-screen */
 .start-day-screen {
   display: flex;
   flex-direction: column;
@@ -592,34 +593,82 @@ body {
   gap: 12px;
 }
 
-.start-day-icon {
-  width: 80px;
-  height: 80px;
-  border-radius: 24px;
-  background: linear-gradient(135deg, var(--accent), #818cf8);
+/* ── Pre-Session Dashboard ── */
+.pre-session-screen {
   display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px 16px 32px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.pre-session-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pre-session-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted, #55556a);
+  padding-left: 2px;
+}
+
+.pre-session-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.pre-session-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.pre-stat-card {
+  background: var(--bg-card, #12121e);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  font-size: 36px;
-  font-weight: 800;
-  color: #fff;
-  margin-bottom: 8px;
-  box-shadow: 0 8px 32px var(--accent-glow);
+  gap: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
 }
 
-.start-day-title {
+.pre-stat-val {
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 900;
+  color: var(--text-primary, #f0f0f5);
+  line-height: 1;
 }
 
-.start-day-sub {
-  font-size: 14px;
-  color: var(--text-secondary);
-  max-width: 260px;
+.pre-session-grid-4 .pre-stat-val {
+  font-size: 18px;
+}
+
+.pre-stat-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted, #55556a);
+}
+
+.pre-stat-skel {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 100%);
+  background-size: 200% 100%;
+  border-radius: 14px;
+  height: 72px;
+  animation: shimmer 1.5s infinite;
 }
 
 .start-day-btn {
-  margin-top: 16px;
+  margin-top: 8px;
   padding: 18px 64px;
   border: none;
   border-radius: var(--radius);
@@ -632,6 +681,7 @@ body {
   cursor: pointer;
   transition: transform 0.1s;
   box-shadow: 0 4px 20px var(--accent-glow);
+  align-self: center;
 }
 
 .start-day-btn:active {

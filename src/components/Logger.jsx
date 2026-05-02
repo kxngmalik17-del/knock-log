@@ -56,6 +56,8 @@ export default function Logger({ user, repName, onLogout, isActive }) {
   const [flashOutcome, setFlashOutcome] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [repStats, setRepStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   // Edit / Notes State
   const [editingEvent, setEditingEvent] = useState(null);
@@ -74,6 +76,67 @@ export default function Logger({ user, repName, onLogout, isActive }) {
   useEffect(() => {
     syncEngine.setUserId(user.id);
     syncEngine.start();
+
+    // Load personal stats for the pre-session dashboard
+    async function loadRepStats() {
+      if (!navigator.onLine) { setStatsLoading(false); return; }
+      try {
+        const { data: events } = await supabase
+          .from('events')
+          .select('payload, created_at')
+          .eq('type', 'KNOCK')
+          .eq('rep_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (!events) { setStatsLoading(false); return; }
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStart = todayStr + 'T00:00:00.000Z';
+
+        const allSeenAddr = {};
+        const todaySeenAddr = {};
+        let allDoors = 0, allSales = 0, allRevenue = 0;
+        let todayDoors = 0, todaySales = 0;
+
+        for (const row of events) {
+          const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+          const addr = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
+          if (!addr) continue;
+          const isToday = row.created_at >= todayStart;
+
+          // All-time unique doors
+          if (!allSeenAddr[addr]) {
+            allSeenAddr[addr] = p.outcome_type;
+            allDoors++;
+            if (p.outcome_type === 'SALE') {
+              allSales++;
+              const num = parseFloat(String(p.sale_details?.job_total || '0').replace(/[^0-9.]/g, ''));
+              if (!isNaN(num)) allRevenue += num;
+            }
+          }
+
+          // Today unique doors
+          if (isToday && !todaySeenAddr[addr]) {
+            todaySeenAddr[addr] = p.outcome_type;
+            todayDoors++;
+            if (p.outcome_type === 'SALE') todaySales++;
+          }
+        }
+
+        setRepStats({
+          allDoors, allSales, allRevenue,
+          allCloseRate: allDoors > 0 ? ((allSales / allDoors) * 100).toFixed(1) : '0.0',
+          todayDoors, todaySales,
+          todayCloseRate: todayDoors > 0 ? ((todaySales / todayDoors) * 100).toFixed(1) : '0.0',
+        });
+      } catch (e) {
+        console.error('[Logger] loadRepStats error:', e);
+      } finally {
+        setStatsLoading(false);
+      }
+    }
+
+    loadRepStats();
 
     async function bootstrapLocal() {
       try {
@@ -608,12 +671,63 @@ export default function Logger({ user, repName, onLogout, isActive }) {
           </div>
         )}
 
-        <div className="start-day-screen">
-          <div className="start-day-icon">K</div>
-          <h2 className="start-day-title">Ready to knock?</h2>
-          <p className="start-day-sub">Your events are securely saved offline.</p>
+        <div className="pre-session-screen">
+          {/* Today's Numbers */}
+          <div className="pre-session-section">
+            <div className="pre-session-label">Today</div>
+            <div className="pre-session-grid">
+              {statsLoading ? (
+                [0,1,2].map(i => <div key={i} className="pre-stat-skel" />)
+              ) : (
+                <>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val">{repStats?.todayDoors ?? '—'}</span>
+                    <span className="pre-stat-lbl">Doors</span>
+                  </div>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val" style={{ color: '#10b981' }}>{repStats?.todaySales ?? '—'}</span>
+                    <span className="pre-stat-lbl">Sales</span>
+                  </div>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val" style={{ color: '#f59e0b' }}>{repStats?.todayCloseRate ?? '—'}%</span>
+                    <span className="pre-stat-lbl">Close %</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* All-Time Numbers */}
+          <div className="pre-session-section">
+            <div className="pre-session-label">All Time</div>
+            <div className="pre-session-grid pre-session-grid-4">
+              {statsLoading ? (
+                [0,1,2,3].map(i => <div key={i} className="pre-stat-skel" />)
+              ) : (
+                <>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val">{repStats?.allDoors ?? '—'}</span>
+                    <span className="pre-stat-lbl">Doors</span>
+                  </div>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val" style={{ color: '#10b981' }}>{repStats?.allSales ?? '—'}</span>
+                    <span className="pre-stat-lbl">Sales</span>
+                  </div>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val" style={{ color: '#f59e0b' }}>{repStats?.allCloseRate ?? '—'}%</span>
+                    <span className="pre-stat-lbl">Close %</span>
+                  </div>
+                  <div className="pre-stat-card">
+                    <span className="pre-stat-val" style={{ color: '#a78bfa' }}>${repStats?.allRevenue ? repStats.allRevenue.toLocaleString() : '—'}</span>
+                    <span className="pre-stat-lbl">Revenue</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           <button className="start-day-btn" onClick={startDay}>
-            START DAY
+            START SESSION
           </button>
         </div>
       </div>
