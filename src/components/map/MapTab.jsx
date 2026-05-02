@@ -474,7 +474,7 @@ export default function MapTab({ user, repName, isActive }) {
 
       {/* ── Pin Count ── */}
       {mapView !== 'COVERAGE' && (
-        <div className="map-pin-count" style={{ left: 16, top: 60 }}>
+        <div className="map-pin-count" style={{ left: 16, top: 76 }}>
           <span>{pinCount}</span> my properties
           {mapView === 'TEAM' && teamPinCount > 0 && (
             <span style={{ marginLeft: 8, color: '#a78bfa', fontSize: 10 }}>
@@ -491,7 +491,7 @@ export default function MapTab({ user, repName, isActive }) {
 
       {/* ── Coverage count pill ── */}
       {mapView === 'COVERAGE' && coverageCount > 0 && (
-        <div className="map-pin-count" style={{ left: 16, top: 60 }}>
+        <div className="map-pin-count" style={{ left: 16, top: 76 }}>
           <span>{coverageCount.toLocaleString()}</span> all-time properties
         </div>
       )}
