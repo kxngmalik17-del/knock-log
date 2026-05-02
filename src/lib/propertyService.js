@@ -177,3 +177,25 @@ export async function getSessionGeoJSON(sessionId) {
   const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessionId);
   return buildGeoJSONFromKnocks(knocks);
 }
+
+export async function deleteActiveSessionKnockByAddress(address) {
+  if (!address) return;
+  
+  const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
+  if (rsStart.length === 0) return;
+  const sessData = JSON.parse(rsStart[0].payload);
+  const sessionId = sessData.session_id;
+
+  const knocksRs = await sqlocal.sql`SELECT event_id, payload FROM events WHERE type = 'KNOCK'`;
+  const targetAddress = address.trim().toLowerCase();
+  
+  for (const row of knocksRs) {
+    const p = JSON.parse(row.payload);
+    if (p.session_id === sessionId) {
+      const rowAddress = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
+      if (rowAddress === targetAddress) {
+        await sqlocal.sql`UPDATE events SET type = 'DELETED', synced = 0 WHERE event_id = ${row.event_id}`;
+      }
+    }
+  }
+}

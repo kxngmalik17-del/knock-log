@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { getActiveSessionGeoJSON } from '../../lib/propertyService';
+import { getActiveSessionGeoJSON, deleteActiveSessionKnockByAddress } from '../../lib/propertyService';
 import { getTeamGeoJSON } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import '../mapStyles.css';
@@ -29,6 +29,8 @@ export default function MapTab({ user, repName, isActive }) {
   const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
   const [mapView, setMapView] = useState('MY'); // 'MY' or 'TEAM'
+  const clickCountRef = useRef(0);
+  const clickTimerRef = useRef(null);
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -189,23 +191,45 @@ export default function MapTab({ user, repName, isActive }) {
       });
 
       // ── CLICK HANDLERS ──
-      const handleMyPinClick = (e) => {
+      const handleMyPinClick = async (e) => {
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
-        const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
-        const timeStr = props.last_knocked_at
-          ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-          : '';
+        
+        // TRIPLE CLICK DETECTION
+        clickCountRef.current += 1;
+        
+        if (clickCountRef.current === 1) {
+          clickTimerRef.current = setTimeout(() => {
+            // Single or double click action (open bottom sheet)
+            if (clickCountRef.current < 3) {
+              const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
+              const timeStr = props.last_knocked_at
+                ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : '';
 
-        map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
+              map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
 
-        setSelectedPin({
-          ...props,
-          statusLabel,
-          timeStr,
-          visitsNum: props.visits || 1,
-          isGhost: false,
-        });
+              setSelectedPin({
+                ...props,
+                statusLabel,
+                timeStr,
+                visitsNum: props.visits || 1,
+                isGhost: false,
+              });
+            }
+            clickCountRef.current = 0;
+          }, 400); // 400ms window for triple click
+        } else if (clickCountRef.current >= 3) {
+          // TRIPLE CLICK DETECTED!
+          clearTimeout(clickTimerRef.current);
+          clickCountRef.current = 0;
+          
+          if (window.confirm(`Delete knock at ${props.address}?`)) {
+             await deleteActiveSessionKnockByAddress(props.address);
+             setSelectedPin(null);
+             refreshPins();
+          }
+        }
       };
 
       const handleTeamPinClick = (e) => {
