@@ -27,7 +27,6 @@ export default function MapTab({ user, repName, isActive }) {
   const [coverageCount, setCoverageCount] = useState(0);
   const [totalKnocks, setTotalKnocks] = useState(0);
   const [mapReady, setMapReady] = useState(false);
-  const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
   const [mapView, setMapView] = useState('MY'); // 'MY' | 'TEAM' | 'COVERAGE'
   const coverageLoaded = useRef(false);
@@ -38,22 +37,6 @@ export default function MapTab({ user, repName, isActive }) {
       setTimeout(() => mapRef.current.resize(), 100);
     }
   }, [isActive]);
-
-  // Check geolocation permission on mount
-  useEffect(() => {
-    if (!('geolocation' in navigator)) {
-      setGeoStatus('unavailable');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      () => setGeoStatus('active'),
-      (err) => {
-        if (err.code === 1) setGeoStatus('denied');
-        else setGeoStatus('active');
-      },
-      { timeout: 3000 }
-    );
-  }, []);
 
   // Initialize Mapbox
   useEffect(() => {
@@ -441,7 +424,6 @@ export default function MapTab({ user, repName, isActive }) {
     }
   }
 
-  const showGeoWarning = totalKnocks > 0 && pinCount === 0 && mapView === 'MY';
   const sheetOpen = selectedPin !== null;
 
   return (
@@ -493,22 +475,6 @@ export default function MapTab({ user, repName, isActive }) {
       {mapView === 'COVERAGE' && coverageCount > 0 && (
         <div className="map-pin-count" style={{ left: 16, top: 76 }}>
           <span>{coverageCount.toLocaleString()}</span> all-time properties
-        </div>
-      )}
-
-      {showGeoWarning && (
-        <div className="map-geo-warning">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
-            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-          </svg>
-          <div>
-            <strong>{totalKnocks} knocks logged</strong> but no GPS data attached.
-            {geoStatus === 'denied' && <> Allow location access in your browser to see pins.</>}
-            {geoStatus === 'active' && <> New knocks will appear as pins automatically.</>}
-            {geoStatus === 'checking' && <> Checking location permissions…</>}
-          </div>
         </div>
       )}
 
