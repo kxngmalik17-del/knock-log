@@ -679,61 +679,64 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         )}
 
         <div className="pre-session-screen">
-          {/* Yesterday's Numbers */}
-          <div className="pre-session-section">
-            <div className="pre-session-label">Yesterday</div>
-            <div className="pre-session-grid">
-              {statsLoading ? (
-                [0,1,2].map(i => <div key={i} className="pre-stat-skel" />)
-              ) : (
-                <>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val">{repStats?.yestDoors ?? '—'}</span>
-                    <span className="pre-stat-lbl">Doors</span>
+          {/* Rep greeting */}
+          <div className="pre-session-greeting">
+            <span className="pre-session-name">{repName}</span>
+            <span className="pre-session-ready">Ready to knock?</span>
+          </div>
+
+          {/* Yesterday card — mirrors closed session stat-card style */}
+          <div className="closed-summary pre-session-animated">
+            <div className="pre-session-section-title">Yesterday</div>
+            {statsLoading ? (
+              <div className="stats-grid">
+                {[0,1].map(i => <div key={i} className="pre-stat-skel" style={{ height: 90 }} />)}
+              </div>
+            ) : (
+              <>
+                <div className="stats-grid">
+                  <div className="stat-card pre-card-delay-1">
+                    <span className="stat-card-label">Doors</span>
+                    <span className="stat-card-value">{repStats?.yestDoors ?? '—'}</span>
+                    <span className="stat-card-sub">{repStats?.yestSales ?? 0} sales</span>
                   </div>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#10b981' }}>{repStats?.yestSales ?? '—'}</span>
-                    <span className="pre-stat-lbl">Sales</span>
+                  <div className="stat-card pre-card-delay-2">
+                    <span className="stat-card-label">Close Rate</span>
+                    <span className="stat-card-value" style={{ color: 'var(--success)' }}>{repStats?.yestCloseRate ?? '—'}%</span>
+                    <span className="stat-card-sub">{repStats?.yestSales ?? 0} of {repStats?.yestDoors ?? 0} doors</span>
                   </div>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#f59e0b' }}>{repStats?.yestCloseRate ?? '—'}%</span>
-                    <span className="pre-stat-lbl">Close %</span>
-                  </div>
-                </>
-              )}
+                </div>
+              </>
+            )}
+
+            {/* All-Time efficiency row */}
+            <div className="efficiency-section pre-card-delay-3">
+              <h3 className="efficiency-title">All-Time</h3>
+              <div className="efficiency-row">
+                <div className="efficiency-metric">
+                  <span className="efficiency-val">{statsLoading ? '—' : (repStats?.allDoors ?? '—')}</span>
+                  <span className="efficiency-lab">Total Doors</span>
+                </div>
+                <div className="efficiency-metric" style={{ textAlign: 'right' }}>
+                  <span className="efficiency-val" style={{ color: 'var(--success)' }}>{statsLoading ? '—' : (repStats?.allSales ?? '—')}</span>
+                  <span className="efficiency-lab">Total Sales</span>
+                </div>
+              </div>
+              <div style={{ height: '1px', background: 'rgba(255,255,255,0.04)' }} />
+              <div className="efficiency-row">
+                <div className="efficiency-metric">
+                  <span className="efficiency-val" style={{ color: '#f59e0b' }}>{statsLoading ? '—' : `${repStats?.allCloseRate ?? '—'}%`}</span>
+                  <span className="efficiency-lab">All-Time Close %</span>
+                </div>
+                <div className="efficiency-metric" style={{ textAlign: 'right' }}>
+                  <span className="efficiency-val" style={{ color: '#a78bfa' }}>{statsLoading ? '—' : `$${repStats?.allCommission ? repStats.allCommission.toFixed(0) : '—'}`}</span>
+                  <span className="efficiency-lab">Total Commission</span>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* All-Time Numbers */}
-          <div className="pre-session-section">
-            <div className="pre-session-label">All Time</div>
-            <div className="pre-session-grid pre-session-grid-4">
-              {statsLoading ? (
-                [0,1,2,3].map(i => <div key={i} className="pre-stat-skel" />)
-              ) : (
-                <>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val">{repStats?.allDoors ?? '—'}</span>
-                    <span className="pre-stat-lbl">Doors</span>
-                  </div>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#10b981' }}>{repStats?.allSales ?? '—'}</span>
-                    <span className="pre-stat-lbl">Sales</span>
-                  </div>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#f59e0b' }}>{repStats?.allCloseRate ?? '—'}%</span>
-                    <span className="pre-stat-lbl">Close %</span>
-                  </div>
-                  <div className="pre-stat-card">
-                    <span className="pre-stat-val" style={{ color: '#a78bfa' }}>${repStats?.allCommission ? repStats.allCommission.toFixed(0) : '—'}</span>
-                    <span className="pre-stat-lbl">Commission</span>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          <button className="start-day-btn" onClick={startDay}>
+          <button className="start-day-btn pre-card-delay-4" onClick={startDay}>
             START SESSION
           </button>
         </div>

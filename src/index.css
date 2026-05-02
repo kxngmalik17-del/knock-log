@@ -582,83 +582,69 @@ body {
    START DAY Screen
    ======================================== */
 
-/* Old .start-day-screen kept for safety but replaced by .pre-session-screen */
-.start-day-screen {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 60dvh;
-  text-align: center;
-  gap: 12px;
-}
-
 /* ── Pre-Session Dashboard ── */
 .pre-session-screen {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   padding: 20px 16px 32px;
   flex: 1;
   overflow-y: auto;
 }
 
-.pre-session-section {
+/* Greeting */
+.pre-session-greeting {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 2px;
+  animation: preSessionEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
-.pre-session-label {
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-muted, #55556a);
-  padding-left: 2px;
-}
-
-.pre-session-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-.pre-session-grid-4 {
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.pre-stat-card {
-  background: var(--bg-card, #12121e);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
-  padding: 16px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-}
-
-.pre-stat-val {
-  font-size: 24px;
+.pre-session-name {
+  font-size: 22px;
   font-weight: 900;
   color: var(--text-primary, #f0f0f5);
   line-height: 1;
 }
 
-.pre-session-grid-4 .pre-stat-val {
-  font-size: 18px;
-}
-
-.pre-stat-lbl {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.pre-session-ready {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-muted, #55556a);
 }
 
+.pre-session-section-title {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted, #55556a);
+  margin-bottom: 4px;
+}
+
+/* Entrance animation container */
+.pre-session-animated {
+  animation: preSessionEnter 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+}
+
+/* Staggered card delays */
+.pre-card-delay-1 { animation: preSessionEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both; }
+.pre-card-delay-2 { animation: preSessionEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.22s both; }
+.pre-card-delay-3 { animation: preSessionEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both; }
+.pre-card-delay-4 { animation: preSessionEnter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.38s both; }
+
+@keyframes preSessionEnter {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Skeleton */
 .pre-stat-skel {
   background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.03) 100%);
   background-size: 200% 100%;
@@ -687,6 +673,7 @@ body {
 .start-day-btn:active {
   transform: scale(0.97);
 }
+
 
 /* ========================================
    Street Input
