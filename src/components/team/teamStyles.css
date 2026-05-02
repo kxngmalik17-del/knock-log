@@ -726,6 +726,45 @@
   color: var(--text-primary, #f0f0f5);
 }
 
+.ops-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted, #55556a);
+  margin-bottom: 12px;
+}
+
+.ops-sale-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 12px;
+}
+
+.ops-sale-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ops-sale-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted, #55556a);
+  letter-spacing: 0.5px;
+}
+
+.ops-sale-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #8888a0);
+}
+
 .ops-calc-grid {
   display: flex;
   flex-direction: column;
