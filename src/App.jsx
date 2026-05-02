@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import Auth from './components/Auth';
 import MainLayout from './components/MainLayout';
+import ResetPasswordModal from './components/ResetPasswordModal';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './index.css';
 
@@ -9,6 +10,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [repName, setRepName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   useEffect(() => {
     // Get initial session
@@ -26,7 +28,14 @@ export default function App() {
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // User clicked the reset link in their email — show the set-password modal
+        setShowResetModal(true);
+        setSession(s);
+        setLoading(false);
+        return;
+      }
       setSession(s);
       if (s) fetchRepName(s.user.id);
       else {
@@ -69,10 +78,15 @@ export default function App() {
   }
 
   return (
-    <MainLayout
-      user={session.user}
-      repName={repName}
-      onLogout={handleLogout}
-    />
+    <>
+      {showResetModal && (
+        <ResetPasswordModal onClose={() => setShowResetModal(false)} />
+      )}
+      <MainLayout
+        user={session.user}
+        repName={repName}
+        onLogout={handleLogout}
+      />
+    </>
   );
 }
