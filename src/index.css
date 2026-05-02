@@ -96,14 +96,10 @@ body {
   margin-bottom: 32px;
 }
 
-.auth-logo h1 {
-  font-size: 32px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #fff, #a5b4fc);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.auth-logo-img {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
 }
 
 .auth-subtitle {
@@ -274,14 +270,10 @@ body {
   gap: 8px;
 }
 
-.app-title {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.3px;
-  background: linear-gradient(135deg, #fff, #a5b4fc);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.app-logo {
+  height: 28px;
+  width: auto;
+  object-fit: contain;
 }
 
 .rep-badge {

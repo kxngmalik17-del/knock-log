@@ -586,7 +586,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         <SyncIndicator />
         <header className="logger-header">
           <div className="header-left">
-            <h1 className="app-title">KnockLog</h1>
+            <img src="/knocklog-logo.png" alt="KnockLog" className="app-logo" />
             <span className="rep-badge" onClick={() => setShowProfile(!showProfile)}>
               {repName}
             </span>
@@ -626,7 +626,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         <SyncIndicator />
         <header className="logger-header">
           <div className="header-left">
-            <h1 className="app-title">KnockLog</h1>
+            <img src="/knocklog-logo.png" alt="KnockLog" className="app-logo" />
             <span className="break-indicator">ON BREAK</span>
           </div>
           <div className="header-right">
@@ -719,7 +719,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         <SyncIndicator />
         <header className="logger-header">
           <div className="header-left">
-            <h1 className="app-title">KnockLog</h1>
+            <img src="/knocklog-logo.png" alt="KnockLog" className="app-logo" />
             <span className="closed-indicator">DAY CLOSED</span>
           </div>
         </header>
@@ -842,7 +842,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
 
       <header className="logger-header">
         <div className="header-left">
-          <h1 className="app-title">KnockLog</h1>
+          <img src="/knocklog-logo.png" alt="KnockLog" className="app-logo" />
           <span className="rep-badge" onClick={() => setShowProfile(!showProfile)}>
             {repName}
           </span>
