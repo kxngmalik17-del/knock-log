@@ -4,6 +4,7 @@ import {
   getTeamStats,
   getTeamCoverageGeoJSON,
   getTeamActivity,
+  getAllSales,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
@@ -59,6 +60,7 @@ export default function TeamTab({ user, repName, isActive }) {
   const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'MAP' | 'ACTIVITY'
   const [stats, setStats] = useState([]);
   const [activityData, setActivityData] = useState({ feed: [], radar: [] });
+  const [allSales, setAllSales] = useState([]);
   const [coverageCount, setCoverageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -75,9 +77,14 @@ export default function TeamTab({ user, repName, isActive }) {
     if (!navigator.onLine) return;
     const dateToUse = dateOverride !== undefined ? dateOverride : boardDate;
     try {
-      const [s, a] = await Promise.all([getTeamStats(dateToUse), getTeamActivity()]);
+      const [s, a, sales] = await Promise.all([
+        getTeamStats(dateToUse),
+        getTeamActivity(),
+        getAllSales()
+      ]);
       setStats(s);
       setActivityData(a);
+      setAllSales(sales);
     } catch (err) {
       console.error('[TeamTab] loadData error:', err);
     } finally {
@@ -327,6 +334,20 @@ export default function TeamTab({ user, repName, isActive }) {
           </svg>
           Activity
         </button>
+        <button
+          id="team-seg-sales"
+          className={`team-seg-btn ${segment === 'SALES' ? 'active' : ''}`}
+          onClick={() => setSegment('SALES')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          Sales
+        </button>
       </nav>
 
       {/* ════════════════════════════════════
@@ -439,6 +460,12 @@ export default function TeamTab({ user, repName, isActive }) {
                           <span className="lb-stat-val" style={{ color: '#10b981' }}>{rep.sales}</span>
                           <span className="lb-stat-lbl">Sales</span>
                         </div>
+                        {rep.revenue > 0 && (
+                          <div className="lb-stat">
+                            <span className="lb-stat-val" style={{ color: '#a78bfa' }}>${rep.revenue.toLocaleString()}</span>
+                            <span className="lb-stat-lbl">Rev</span>
+                          </div>
+                        )}
                         {rep.dph && (
                           <div className="lb-stat">
                             <span className="lb-stat-val" style={{ color: '#f59e0b' }}>{rep.dph}</span>
@@ -573,6 +600,78 @@ export default function TeamTab({ user, repName, isActive }) {
                   </div>
                 );
               })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════
+           SEGMENT: SALES BOOK (Persistent)
+         ════════════════════════════════════ */}
+      {segment === 'SALES' && (
+        <div className="team-segment-content">
+          <div className="team-section-header">
+            <h2 className="team-section-title">Persistent Sales Book</h2>
+            <div className="team-total-revenue-pill">
+               ${allSales.reduce((sum, s) => {
+                 const val = parseFloat(String(s.details?.job_total || '0').replace(/[^0-9.]/g, ''));
+                 return sum + (isNaN(val) ? 0 : val);
+               }, 0).toLocaleString()}
+            </div>
+          </div>
+
+          <div className="sales-book-list">
+            {allSales.length === 0 ? (
+              <div className="activity-empty">No sales history found.</div>
+            ) : (
+              allSales.map((sale) => (
+                <div className="sale-book-card" key={sale.id}>
+                  <div className="sale-book-header">
+                    <div className="sale-book-main">
+                      <div className="sale-homeowner">{sale.details.homeowner_name || 'Anonymous Customer'}</div>
+                      <div className="sale-address">{sale.address}</div>
+                    </div>
+                    <div className="sale-amount-badge">
+                      {sale.details.job_total ? `$${sale.details.job_total}` : 'SALE'}
+                    </div>
+                  </div>
+
+                  <div className="sale-details-grid">
+                    <div className="sale-detail-item">
+                      <span className="sale-detail-lbl">Rep</span>
+                      <span className="sale-detail-val">{sale.rep_name}</span>
+                    </div>
+                    <div className="sale-detail-item">
+                      <span className="sale-detail-lbl">Date</span>
+                      <span className="sale-detail-val">{new Date(sale.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })}</span>
+                    </div>
+                    {sale.details.phone && (
+                      <div className="sale-detail-item">
+                        <span className="sale-detail-lbl">Phone</span>
+                        <span className="sale-detail-val" style={{ color: '#818cf8' }}>{sale.details.phone}</span>
+                      </div>
+                    )}
+                    {sale.details.email && (
+                      <div className="sale-detail-item">
+                        <span className="sale-detail-lbl">Email</span>
+                        <span className="sale-detail-val" style={{ color: '#818cf8', fontSize: '10px' }}>{sale.details.email}</span>
+                      </div>
+                    )}
+                    {sale.details.service_date && (
+                      <div className="sale-detail-item">
+                        <span className="sale-detail-lbl">Service</span>
+                        <span className="sale-detail-val" style={{ color: '#f59e0b' }}>{new Date(sale.details.service_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                      </div>
+                    )}
+                    {sale.details.payment_method && (
+                      <div className="sale-detail-item">
+                        <span className="sale-detail-lbl">Pay</span>
+                        <span className="sale-detail-val">{sale.details.payment_method}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>

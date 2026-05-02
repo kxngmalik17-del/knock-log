@@ -256,6 +256,45 @@ export async function getTeamActivity() {
 }
 
 
+/**
+ * Fetch ALL successful sales from history across ALL reps.
+ * This is used for the persistent "Sales Book" / Customer List.
+ */
+export async function getAllSales() {
+  const { data: events, error } = await supabase
+    .from('events')
+    .select('rep_id, payload, created_at')
+    .eq('type', 'KNOCK')
+    .order('created_at', { ascending: false });
+
+  if (error || !events) {
+    console.error('[TeamService] Failed to fetch all sales:', error);
+    return [];
+  }
+
+  const { data: reps } = await supabase.from('reps').select('user_id, display_name');
+  const repNameMap = {};
+  (reps || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
+
+  const sales = [];
+  for (const row of events) {
+    const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const status = resolveStatus(p);
+    
+    if (status === 'SALE') {
+      sales.push({
+        id: row.created_at + row.rep_id,
+        rep_id: row.rep_id,
+        rep_name: repNameMap[row.rep_id] || 'Teammate',
+        address: `${p.house_number || ''} ${p.street_name || ''}`.trim(),
+        timestamp: p.timestamp || row.created_at,
+        details: p.sale_details || {}
+      });
+    }
+  }
+  return sales;
+}
+
 // ── Internal helper ──
 function resolveStatus(p) {
   if (p.outcome_type !== 'CONVO') return p.outcome_type || 'NO_ANSWER';
