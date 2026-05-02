@@ -64,18 +64,31 @@ export async function getTeamGeoJSON(currentUserId) {
  * Returns GeoJSON for the Team Coverage Map.
  */
 export async function getTeamCoverageGeoJSON() {
-  const { data, error } = await supabase
-    .from('team_property_coverage')
-    .select('house_number, street_name, last_knocked_at, outcome_type, convo_status, objection_type, lat, lng');
+  const allRows = [];
+  const PAGE_SIZE = 1000;
+  let from = 0;
 
-  if (error || !data) {
-    console.error('[TeamService] Failed to fetch team coverage:', error);
-    return { type: 'FeatureCollection', features: [] };
+  // Supabase caps responses at 1,000 rows by default — paginate until exhausted
+  while (true) {
+    const { data, error } = await supabase
+      .from('team_property_coverage')
+      .select('house_number, street_name, last_knocked_at, outcome_type, convo_status, objection_type, lat, lng')
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error('[TeamService] Failed to fetch team coverage:', error);
+      break;
+    }
+
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) break; // last page
+    from += PAGE_SIZE;
   }
 
   return {
     type: 'FeatureCollection',
-    features: data.map(row => ({
+    features: allRows.map(row => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [row.lng, row.lat] },
       properties: {

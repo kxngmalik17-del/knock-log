@@ -29,8 +29,7 @@ export default function MapTab({ user, repName, isActive }) {
   const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
   const [mapView, setMapView] = useState('MY'); // 'MY' or 'TEAM'
-  const clickCountRef = useRef(0);
-  const clickTimerRef = useRef(null);
+  const longPressMapRef = useRef(null); // holds timeout id for long-press delete
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -190,47 +189,54 @@ export default function MapTab({ user, repName, isActive }) {
         layout: { visibility: 'none' }
       });
 
-      // ── CLICK HANDLERS ──
-      const handleMyPinClick = async (e) => {
+      // ── CLICK & LONG-PRESS HANDLERS ──
+
+      // Normal single click: open bottom sheet
+      const handleMyPinClick = (e) => {
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
-        
-        // TRIPLE CLICK DETECTION
-        clickCountRef.current += 1;
-        
-        if (clickCountRef.current === 1) {
-          clickTimerRef.current = setTimeout(() => {
-            // Single or double click action (open bottom sheet)
-            if (clickCountRef.current < 3) {
-              const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
-              const timeStr = props.last_knocked_at
-                ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                : '';
+        const statusLabel = (props.last_status || 'UNKNOWN').replace('_', ' ');
+        const timeStr = props.last_knocked_at
+          ? new Date(props.last_knocked_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : '';
+        map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
+        setSelectedPin({ ...props, statusLabel, timeStr, visitsNum: props.visits || 1, isGhost: false });
+      };
 
-              map.flyTo({ center: coords, zoom: 16.5, offset: [0, 80] });
-
-              setSelectedPin({
-                ...props,
-                statusLabel,
-                timeStr,
-                visitsNum: props.visits || 1,
-                isGhost: false,
-              });
-            }
-            clickCountRef.current = 0;
-          }, 400); // 400ms window for triple click
-        } else if (clickCountRef.current >= 3) {
-          // TRIPLE CLICK DETECTED!
-          clearTimeout(clickTimerRef.current);
-          clickCountRef.current = 0;
-          
+      // Long-press (600ms): confirm + delete knock
+      const startLongPress = (e) => {
+        if (!e.features || !e.features.length) return;
+        const props = e.features[0].properties;
+        longPressMapRef.current = setTimeout(async () => {
+          longPressMapRef.current = null;
           if (window.confirm(`Delete knock at ${props.address}?`)) {
-             await deleteActiveSessionKnockByAddress(props.address);
-             setSelectedPin(null);
-             refreshPins();
+            await deleteActiveSessionKnockByAddress(props.address);
+            setSelectedPin(null);
+            refreshPins();
           }
+        }, 600);
+      };
+
+      const cancelLongPress = () => {
+        if (longPressMapRef.current) {
+          clearTimeout(longPressMapRef.current);
+          longPressMapRef.current = null;
         }
       };
+
+      map.on('click', 'unclustered-point', handleMyPinClick);
+      map.on('click', 'today-glow', handleMyPinClick);
+
+      map.on('mousedown',  'unclustered-point', startLongPress);
+      map.on('mousedown',  'today-glow',        startLongPress);
+      map.on('mouseup',    'unclustered-point', cancelLongPress);
+      map.on('mouseup',    'today-glow',        cancelLongPress);
+      map.on('touchstart', 'unclustered-point', startLongPress);
+      map.on('touchstart', 'today-glow',        startLongPress);
+      map.on('touchend',   'unclustered-point', cancelLongPress);
+      map.on('touchend',   'today-glow',        cancelLongPress);
+      map.on('mousemove', cancelLongPress);
+      map.on('touchmove', cancelLongPress);
 
       const handleTeamPinClick = (e) => {
         const props = e.features[0].properties;
@@ -251,8 +257,6 @@ export default function MapTab({ user, repName, isActive }) {
         });
       };
 
-      map.on('click', 'unclustered-point', handleMyPinClick);
-      map.on('click', 'today-glow', handleMyPinClick);
       map.on('click', 'team-ghost-point', handleTeamPinClick);
 
       map.on('click', (e) => {
