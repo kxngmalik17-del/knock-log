@@ -611,7 +611,7 @@ export default function TeamTab({ user, repName, isActive }) {
       {segment === 'SALES' && (
         <div className="team-segment-content">
           <div className="team-section-header">
-            <h2 className="team-section-title">Persistent Sales Book</h2>
+            <h2 className="team-section-title">Sales Book</h2>
             <div className="team-total-revenue-pill">
                ${allSales.reduce((sum, s) => {
                  const val = parseFloat(String(s.details?.job_total || '0').replace(/[^0-9.]/g, ''));
