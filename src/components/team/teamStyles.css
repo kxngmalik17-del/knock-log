@@ -654,6 +654,106 @@
   100% { opacity: 0; transform: translateX(-50%) translateY(10px); }
 }
 
+/* ── Operations Modal ── */
+.ops-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 9999;
+  animation: teamFadeIn 0.2s ease;
+}
+
+@keyframes teamFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ops-modal-content {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-card, #12121e);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(99, 102, 241, 0.1);
+  animation: teamSlideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes teamSlideUp {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ops-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.ops-modal-header h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary, #f0f0f5);
+  margin: 0;
+}
+
+.ops-close-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--text-secondary, #8888a0);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ops-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary, #f0f0f5);
+}
+
+.ops-calc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ops-calc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary, #8888a0);
+}
+
+.ops-calc-row span:last-child {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ops-calc-row.ops-total {
+  font-size: 16px;
+  color: var(--text-primary, #f0f0f5);
+}
+
+.ops-calc-row.ops-total span:last-child {
+  font-size: 20px;
+  font-weight: 900;
+}
+
 /* ── Loading skeleton ── */
 .lb-skeleton {
   background: var(--bg-card, #12121e);

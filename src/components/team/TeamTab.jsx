@@ -61,6 +61,7 @@ export default function TeamTab({ user, repName, isActive }) {
   const [stats, setStats] = useState([]);
   const [activityData, setActivityData] = useState({ feed: [], radar: [] });
   const [allSales, setAllSales] = useState([]);
+  const [operationsSale, setOperationsSale] = useState(null);
   const [coverageCount, setCoverageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -71,6 +72,21 @@ export default function TeamTab({ user, repName, isActive }) {
   const mapRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const coverageLoaded = useRef(false);
+  const longPressTimerRef = useRef(null);
+
+  // ── Handlers ──
+  function handleCardPressStart(sale) {
+    longPressTimerRef.current = setTimeout(() => {
+      setOperationsSale(sale);
+    }, 500); // 500ms long press
+  }
+
+  function handleCardPressEnd() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
 
   // ── Load non-map data ──
   const loadData = useCallback(async (dateOverride) => {
@@ -625,7 +641,17 @@ export default function TeamTab({ user, repName, isActive }) {
               <div className="activity-empty">No sales history found.</div>
             ) : (
               allSales.map((sale) => (
-                <div className="sale-book-card" key={sale.id}>
+                <div 
+                  className="sale-book-card" 
+                  key={sale.id}
+                  onTouchStart={() => handleCardPressStart(sale)}
+                  onTouchEnd={handleCardPressEnd}
+                  onTouchMove={handleCardPressEnd}
+                  onMouseDown={() => handleCardPressStart(sale)}
+                  onMouseUp={handleCardPressEnd}
+                  onMouseLeave={handleCardPressEnd}
+                  style={{ cursor: 'pointer', userSelect: 'none', WebkitTouchCallout: 'none' }}
+                >
                   <div className="sale-book-header">
                     <div className="sale-book-main">
                       <div className="sale-homeowner">{sale.details.homeowner_name || 'Anonymous Customer'}</div>
@@ -673,6 +699,54 @@ export default function TeamTab({ user, repName, isActive }) {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Operations Modal ── */}
+      {operationsSale && (
+        <div className="ops-modal-overlay" onClick={() => setOperationsSale(null)}>
+          <div className="ops-modal-content" onClick={e => e.stopPropagation()}>
+            <div className="ops-modal-header">
+              <h3>Operations Details</h3>
+              <button className="ops-close-btn" onClick={() => setOperationsSale(null)}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            
+            {(() => {
+              const totalValStr = String(operationsSale.details?.job_total || '0').replace(/[^0-9.]/g, '');
+              const jobTotal = parseFloat(totalValStr);
+              if (isNaN(jobTotal) || jobTotal <= 0) {
+                return <p style={{ color: '#8888a0', textAlign: 'center', marginTop: 20 }}>No valid job total found for this sale.</p>;
+              }
+              
+              const commissionPct = jobTotal <= 398 ? 0.25 : 0.40;
+              const commissionVal = jobTotal * commissionPct;
+              const labourCost = 40;
+              const companyProfit = jobTotal - commissionVal - labourCost;
+              
+              return (
+                <div className="ops-calc-grid">
+                  <div className="ops-calc-row">
+                    <span>Job Total</span>
+                    <span style={{ fontWeight: 800 }}>${jobTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="ops-calc-row">
+                    <span>Commission ({commissionPct * 100}%)</span>
+                    <span style={{ color: '#10b981' }}>-${commissionVal.toFixed(2)}</span>
+                  </div>
+                  <div className="ops-calc-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 12, marginBottom: 12 }}>
+                    <span>Labour Cost</span>
+                    <span style={{ color: '#ef4444' }}>-${labourCost.toFixed(2)}</span>
+                  </div>
+                  <div className="ops-calc-row ops-total">
+                    <span>Net Profit</span>
+                    <span style={{ color: companyProfit >= 0 ? '#a78bfa' : '#ef4444' }}>${companyProfit.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
