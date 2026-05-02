@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { getActiveSessionGeoJSON, deleteActiveSessionKnockByAddress } from '../../lib/propertyService';
+import { getActiveSessionGeoJSON } from '../../lib/propertyService';
 import { getTeamGeoJSON } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import '../mapStyles.css';
@@ -29,7 +29,6 @@ export default function MapTab({ user, repName, isActive }) {
   const [geoStatus, setGeoStatus] = useState('checking');
   const [selectedPin, setSelectedPin] = useState(null);
   const [mapView, setMapView] = useState('MY'); // 'MY' or 'TEAM'
-  const longPressMapRef = useRef(null); // holds timeout id for long-press delete
 
   // Ensure map canvas resizes when tab becomes visible
   useEffect(() => {
@@ -189,9 +188,8 @@ export default function MapTab({ user, repName, isActive }) {
         layout: { visibility: 'none' }
       });
 
-      // ── CLICK & LONG-PRESS HANDLERS ──
+      // ── CLICK HANDLERS ──
 
-      // Normal single click: open bottom sheet
       const handleMyPinClick = (e) => {
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
@@ -203,38 +201,8 @@ export default function MapTab({ user, repName, isActive }) {
         setSelectedPin({ ...props, statusLabel, timeStr, visitsNum: props.visits || 1, isGhost: false });
       };
 
-      // Long-press (600ms): confirm + delete knock
-      const startLongPress = (e) => {
-        if (!e.features || !e.features.length) return;
-        const props = e.features[0].properties;
-        longPressMapRef.current = setTimeout(async () => {
-          longPressMapRef.current = null;
-          if (window.confirm(`Delete knock at ${props.address}?`)) {
-            await deleteActiveSessionKnockByAddress(props.address);
-            setSelectedPin(null);
-            refreshPins();
-          }
-        }, 600);
-      };
-
-      const cancelLongPress = () => {
-        if (longPressMapRef.current) {
-          clearTimeout(longPressMapRef.current);
-          longPressMapRef.current = null;
-        }
-      };
-
       map.on('click', 'unclustered-point', handleMyPinClick);
       map.on('click', 'today-glow', handleMyPinClick);
-
-      map.on('mousedown',  'unclustered-point', startLongPress);
-      map.on('mousedown',  'today-glow',        startLongPress);
-      map.on('mouseup',    'unclustered-point', cancelLongPress);
-      map.on('mouseup',    'today-glow',        cancelLongPress);
-      map.on('touchstart', 'unclustered-point', startLongPress);
-      map.on('touchstart', 'today-glow',        startLongPress);
-      map.on('touchend',   'unclustered-point', cancelLongPress);
-      map.on('touchend',   'today-glow',        cancelLongPress);
 
       const handleTeamPinClick = (e) => {
         const props = e.features[0].properties;

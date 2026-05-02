@@ -100,46 +100,6 @@ export async function getTeamCoverageGeoJSON() {
   };
 }
 
-/**
- * Deletes all KNOCK events from Supabase that match the given address.
- * Used by the triple-click feature on the Team Coverage map.
- */
-export async function deleteTeamCoverageKnockByAddress(address) {
-  if (!address) return;
-  const targetAddress = address.trim().toLowerCase();
-
-  const { data: potentialKnocks, error: fetchError } = await supabase
-    .from('events')
-    .select('event_id, payload')
-    .eq('type', 'KNOCK');
-
-  if (fetchError || !potentialKnocks) {
-    console.error('[TeamService] Failed to fetch knocks for deletion:', fetchError);
-    return;
-  }
-
-  const idsToDelete = [];
-  for (const row of potentialKnocks) {
-    const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
-    const rowAddress = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
-    if (rowAddress === targetAddress) {
-      idsToDelete.push(row.event_id);
-    }
-  }
-
-  if (idsToDelete.length > 0) {
-    const { error: deleteError } = await supabase
-      .from('events')
-      .delete()
-      .in('event_id', idsToDelete);
-      
-    if (deleteError) {
-      console.error('[TeamService] Failed to delete knocks:', deleteError);
-    } else {
-      console.log(`[TeamService] Successfully deleted ${idsToDelete.length} knocks at ${address}`);
-    }
-  }
-}
 
 /**
  * Fetch leaderboard stats for a given date (or week).

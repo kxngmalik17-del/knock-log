@@ -5,7 +5,6 @@ import {
   getTeamCoverageGeoJSON,
   getTeamActivity,
   getAllSales,
-  deleteTeamCoverageKnockByAddress,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
@@ -181,9 +180,7 @@ export default function TeamTab({ user, repName, isActive }) {
         },
       });
 
-      // Single click: show info popup
-      const coverageLongPressRef = { current: null };
-
+      // Click: show info popup
       map.on('click', 'coverage-point', (e) => {
         const props = e.features[0].properties;
         const coords = e.features[0].geometry.coordinates.slice();
@@ -200,35 +197,6 @@ export default function TeamTab({ user, repName, isActive }) {
           `)
           .addTo(map);
       });
-
-      // Long-press (600ms): confirm + delete all team knocks at that address
-      const startCoverageLongPress = (e) => {
-        // e.features may be absent on touchstart — fall back to queryRenderedFeatures
-        const features = (e.features && e.features.length)
-          ? e.features
-          : map.queryRenderedFeatures(e.point, { layers: ['coverage-point'] });
-        if (!features || !features.length) return;
-        const props = features[0].properties;
-        coverageLongPressRef.current = setTimeout(async () => {
-          coverageLongPressRef.current = null;
-          if (window.confirm(`Permanently delete all team knocks at ${props.address}?`)) {
-            await deleteTeamCoverageKnockByAddress(props.address);
-            loadCoverage(false);
-          }
-        }, 600);
-      };
-
-      const cancelCoverageLongPress = () => {
-        if (coverageLongPressRef.current) {
-          clearTimeout(coverageLongPressRef.current);
-          coverageLongPressRef.current = null;
-        }
-      };
-
-      map.on('mousedown',  'coverage-point', startCoverageLongPress);
-      map.on('mouseup',    'coverage-point', cancelCoverageLongPress);
-      map.on('touchstart', 'coverage-point', startCoverageLongPress);
-      map.on('touchend',   'coverage-point', cancelCoverageLongPress);
 
       map.on('mouseenter', 'coverage-point', () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', 'coverage-point', () => { map.getCanvas().style.cursor = ''; });

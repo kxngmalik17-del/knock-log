@@ -1,5 +1,4 @@
 import { sqlocal, upsertProperty, getAllProperties } from './db';
-import { supabase } from './supabase';
 
 /**
  * PROPERTY DERIVATION SERVICE
@@ -179,41 +178,4 @@ export async function getSessionGeoJSON(sessionId) {
   return buildGeoJSONFromKnocks(knocks);
 }
 
-export async function deleteActiveSessionKnockByAddress(address) {
-  if (!address) return;
 
-  const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
-  if (rsStart.length === 0) return;
-  const sessionId = JSON.parse(rsStart[0].payload).session_id;
-
-  // Find all KNOCK events for this session at this address
-  const knocksRs = await sqlocal.sql`SELECT event_id, payload FROM events WHERE type = 'KNOCK'`;
-  const targetAddress = address.trim().toLowerCase();
-  const idsToDelete = [];
-
-  for (const row of knocksRs) {
-    const p = JSON.parse(row.payload);
-    if (p.session_id === sessionId) {
-      const rowAddress = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
-      if (rowAddress === targetAddress) {
-        idsToDelete.push(row.event_id);
-      }
-    }
-  }
-
-  if (idsToDelete.length === 0) return;
-
-  // 1. Hard-delete from local SQLite
-  for (const id of idsToDelete) {
-    await sqlocal.sql`DELETE FROM events WHERE event_id = ${id}`;
-  }
-
-  // 2. Hard-delete from Supabase (backend) — best effort
-  if (navigator.onLine) {
-    const { error } = await supabase
-      .from('events')
-      .delete()
-      .in('event_id', idsToDelete);
-    if (error) console.error('[PropertyService] Supabase delete error:', error);
-  }
-}
