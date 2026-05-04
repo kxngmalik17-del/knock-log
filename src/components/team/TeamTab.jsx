@@ -3,6 +3,7 @@ import {
   getTeamStats,
   getTeamActivity,
   getAllSales,
+  updateSaleDetails,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
@@ -163,6 +164,10 @@ export default function TeamTab({ user, repName, isActive }) {
   const [toast, setToast] = useState(null);
   const [boardDate, setBoardDate] = useState('TODAY');
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [salesSearch, setSalesSearch] = useState('');
+  const [editSale, setEditSale] = useState(null);   // sale object being edited
+  const [editForm, setEditForm] = useState({});      // controlled form values
+  const [saving, setSaving] = useState(false);
 
   const longPressTimerRef = useRef(null);
 
@@ -170,13 +175,49 @@ export default function TeamTab({ user, repName, isActive }) {
   function handleCardPressStart(sale) {
     longPressTimerRef.current = setTimeout(() => {
       setOperationsSale(sale);
-    }, 500); // 500ms long press
+    }, 500);
   }
 
   function handleCardPressEnd() {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
+    }
+  }
+
+  function openEditModal(sale) {
+    setEditSale(sale);
+    setEditForm({
+      rep_override:    sale.details.rep_override    || sale.rep_name || '',
+      homeowner_name:  sale.details.homeowner_name  || '',
+      job_total:       sale.details.job_total       || '',
+      phone:           sale.details.phone           || '',
+      email:           sale.details.email           || '',
+      service_date:    sale.details.service_date    || '',
+      payment_method:  sale.details.payment_method  || '',
+    });
+  }
+
+  async function handleSaveEdit() {
+    if (!editSale?.event_id) {
+      showToast('Cannot edit — no event ID found.', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateSaleDetails(editSale.event_id, editForm);
+      // Optimistically update local state
+      setAllSales(prev => prev.map(s =>
+        s.id === editSale.id
+          ? { ...s, rep_name: editForm.rep_override || s.rep_name, details: { ...s.details, ...editForm } }
+          : s
+      ));
+      showToast('Sale updated!', 'success');
+      setEditSale(null);
+    } catch (err) {
+      showToast(err.message || 'Save failed.', 'error');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -537,6 +578,7 @@ export default function TeamTab({ user, repName, isActive }) {
          ════════════════════════════════════ */}
       {segment === 'SALES' && (
         <div className="team-segment-content">
+          {/* Header: title + total revenue */}
           <div className="team-section-header">
             <h2 className="team-section-title">Sales Book</h2>
             <div className="team-total-revenue-pill">
@@ -547,13 +589,52 @@ export default function TeamTab({ user, repName, isActive }) {
             </div>
           </div>
 
+          {/* Search bar */}
+          <div className="sales-search-wrap">
+            <svg className="sales-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              id="sales-search-input"
+              className="sales-search-input"
+              type="text"
+              placeholder="Search homeowner, rep, address…"
+              value={salesSearch}
+              onChange={e => setSalesSearch(e.target.value)}
+            />
+            {salesSearch && (
+              <button className="sales-search-clear" onClick={() => setSalesSearch('')}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            )}
+          </div>
+
           <div className="sales-book-list">
-            {allSales.length === 0 ? (
-              <div className="activity-empty">No sales history found.</div>
-            ) : (
-              allSales.map((sale) => (
-                <div 
-                  className="sale-book-card" 
+            {(() => {
+              const q = salesSearch.toLowerCase().trim();
+              const filtered = q
+                ? allSales.filter(s =>
+                    (s.details.homeowner_name || '').toLowerCase().includes(q) ||
+                    (s.rep_name || '').toLowerCase().includes(q) ||
+                    (s.address || '').toLowerCase().includes(q) ||
+                    (s.details.phone || '').includes(q) ||
+                    (String(s.details.job_total || '')).includes(q)
+                  )
+                : allSales;
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="activity-empty">
+                    {q ? `No sales matching "${q}"` : 'No sales history found.'}
+                  </div>
+                );
+              }
+
+              return filtered.map((sale) => (
+                <div
+                  className="sale-book-card"
                   key={sale.id}
                   onTouchStart={() => handleCardPressStart(sale)}
                   onTouchEnd={handleCardPressEnd}
@@ -565,11 +646,26 @@ export default function TeamTab({ user, repName, isActive }) {
                 >
                   <div className="sale-book-header">
                     <div className="sale-book-main">
-                      <div className="sale-homeowner">{sale.details.homeowner_name || 'Anonymous Customer'}</div>
+                      <div className="sale-homeowner">{sale.details.homeowner_name || <span style={{ color: '#55556a', fontStyle: 'italic' }}>Anonymous Customer</span>}</div>
                       <div className="sale-address">{sale.address}</div>
                     </div>
-                    <div className="sale-amount-badge">
-                      {sale.details.job_total ? `$${sale.details.job_total}` : 'SALE'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="sale-amount-badge">
+                        {sale.details.job_total ? `$${sale.details.job_total}` : <span style={{ color: '#55556a' }}>—</span>}
+                      </div>
+                      <button
+                        className="sale-edit-btn"
+                        id={`sale-edit-${sale.id}`}
+                        onClick={e => { e.stopPropagation(); openEditModal(sale); }}
+                        onTouchStart={e => e.stopPropagation()}
+                        onMouseDown={e => e.stopPropagation()}
+                        title="Edit sale"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                      </button>
                     </div>
                   </div>
 
@@ -608,8 +704,111 @@ export default function TeamTab({ user, repName, isActive }) {
                     )}
                   </div>
                 </div>
-              ))
-            )}
+              ));
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Sale Modal ── */}
+      {editSale && (
+        <div className="ops-modal-overlay" onClick={() => setEditSale(null)}>
+          <div className="ops-modal-content edit-sale-modal" onClick={e => e.stopPropagation()}>
+            <div className="ops-modal-header">
+              <div>
+                <h3 style={{ marginBottom: 2 }}>Edit Sale</h3>
+                <div style={{ fontSize: 12, color: '#8888a0' }}>{editSale.address}</div>
+              </div>
+              <button className="ops-close-btn" onClick={() => setEditSale(null)}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            <div className="edit-form-grid">
+              <div className="edit-form-field">
+                <label className="edit-form-label">Closed By (Rep)</label>
+                <input
+                  className="edit-form-input"
+                  type="text"
+                  placeholder="Rep name"
+                  value={editForm.rep_override}
+                  onChange={e => setEditForm(f => ({ ...f, rep_override: e.target.value }))}
+                />
+              </div>
+              <div className="edit-form-field">
+                <label className="edit-form-label">Homeowner Name</label>
+                <input
+                  className="edit-form-input"
+                  type="text"
+                  placeholder="Full name"
+                  value={editForm.homeowner_name}
+                  onChange={e => setEditForm(f => ({ ...f, homeowner_name: e.target.value }))}
+                />
+              </div>
+              <div className="edit-form-field">
+                <label className="edit-form-label">Deal Size ($)</label>
+                <input
+                  className="edit-form-input"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 350"
+                  value={editForm.job_total}
+                  onChange={e => setEditForm(f => ({ ...f, job_total: e.target.value }))}
+                />
+              </div>
+              <div className="edit-form-field">
+                <label className="edit-form-label">Phone</label>
+                <input
+                  className="edit-form-input"
+                  type="tel"
+                  placeholder="(555) 000-0000"
+                  value={editForm.phone}
+                  onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <div className="edit-form-field">
+                <label className="edit-form-label">Email</label>
+                <input
+                  className="edit-form-input"
+                  type="email"
+                  placeholder="customer@email.com"
+                  value={editForm.email}
+                  onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+              <div className="edit-form-field">
+                <label className="edit-form-label">Service Date</label>
+                <input
+                  className="edit-form-input"
+                  type="date"
+                  value={editForm.service_date}
+                  onChange={e => setEditForm(f => ({ ...f, service_date: e.target.value }))}
+                />
+              </div>
+              <div className="edit-form-field">
+                <label className="edit-form-label">Payment Method</label>
+                <select
+                  className="edit-form-input edit-form-select"
+                  value={editForm.payment_method}
+                  onChange={e => setEditForm(f => ({ ...f, payment_method: e.target.value }))}
+                >
+                  <option value="">Select…</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Check">Check</option>
+                  <option value="Card">Card</option>
+                  <option value="Venmo">Venmo</option>
+                  <option value="Zelle">Zelle</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="edit-form-actions">
+              <button className="edit-cancel-btn" onClick={() => setEditSale(null)} disabled={saving}>Cancel</button>
+              <button className="edit-save-btn" onClick={handleSaveEdit} disabled={saving}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -803,6 +803,198 @@
   flex-shrink: 0;
 }
 
+/* ── Sales Search Bar ── */
+.sales-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 10px 16px 4px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sales-search-icon {
+  flex-shrink: 0;
+  margin-left: 12px;
+  color: var(--text-muted, #55556a);
+  pointer-events: none;
+}
+
+.sales-search-input {
+  flex: 1;
+  padding: 11px 10px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary, #f0f0f5);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.sales-search-input::placeholder {
+  color: var(--text-muted, #55556a);
+}
+
+.sales-search-clear {
+  flex-shrink: 0;
+  margin-right: 10px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.07);
+  color: var(--text-secondary, #8888a0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sales-search-clear:active {
+  background: rgba(255,255,255,0.14);
+}
+
+/* ── Sale Edit Button ── */
+.sale-edit-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-muted, #55556a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.sale-edit-btn:active {
+  background: rgba(99,102,241,0.18);
+  border-color: rgba(99,102,241,0.3);
+  color: #818cf8;
+  transform: scale(0.9);
+}
+
+/* ── Edit Sale Modal ── */
+.edit-sale-modal {
+  max-height: 88vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.edit-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.edit-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.edit-form-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted, #55556a);
+}
+
+.edit-form-input {
+  width: 100%;
+  padding: 11px 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  color: var(--text-primary, #f0f0f5);
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.edit-form-input:focus {
+  border-color: rgba(99,102,241,0.5);
+  background: rgba(99,102,241,0.06);
+}
+
+.edit-form-input::placeholder {
+  color: var(--text-muted, #55556a);
+  font-weight: 500;
+}
+
+/* Style native date input so it matches */
+.edit-form-input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.4);
+  cursor: pointer;
+}
+
+.edit-form-select {
+  cursor: pointer;
+}
+
+.edit-form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.edit-cancel-btn {
+  flex: 1;
+  padding: 13px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary, #8888a0);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.edit-cancel-btn:active:not(:disabled) {
+  background: rgba(255,255,255,0.09);
+}
+
+.edit-save-btn {
+  flex: 2;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 4px 16px rgba(99,102,241,0.35);
+}
+
+.edit-save-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  box-shadow: 0 2px 8px rgba(99,102,241,0.25);
+}
+
+.edit-save-btn:disabled,
+.edit-cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
 .sale-details-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));

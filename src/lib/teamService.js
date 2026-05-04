@@ -294,7 +294,7 @@ export async function getTeamActivity() {
 export async function getAllSales() {
   const { data: events, error } = await supabase
     .from('events')
-    .select('rep_id, payload, created_at')
+    .select('event_id, rep_id, payload, created_at')
     .eq('type', 'KNOCK')
     .order('created_at', { ascending: false });
 
@@ -311,19 +311,56 @@ export async function getAllSales() {
   for (const row of events) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
     const status = resolveStatus(p);
-    
+
     if (status === 'SALE') {
       sales.push({
         id: row.created_at + row.rep_id,
+        event_id: row.event_id,
         rep_id: row.rep_id,
-        rep_name: repNameMap[row.rep_id] || 'Teammate',
+        rep_name: p.sale_details?.rep_override || repNameMap[row.rep_id] || 'Teammate',
         address: `${p.house_number || ''} ${p.street_name || ''}`.trim(),
         timestamp: p.timestamp || row.created_at,
-        details: p.sale_details || {}
+        details: p.sale_details || {},
       });
     }
   }
   return sales;
+}
+
+/**
+ * Patch the sale_details of an existing KNOCK event by event_id.
+ * Merges updatedDetails into the existing sale_details object.
+ */
+export async function updateSaleDetails(eventId, updatedDetails) {
+  const { data, error: fetchErr } = await supabase
+    .from('events')
+    .select('payload')
+    .eq('event_id', eventId)
+    .single();
+
+  if (fetchErr || !data) {
+    console.error('[TeamService] updateSaleDetails fetch error:', fetchErr);
+    throw new Error('Could not load the event to update.');
+  }
+
+  const currentPayload = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+  const merged = {
+    ...currentPayload,
+    sale_details: {
+      ...(currentPayload.sale_details || {}),
+      ...updatedDetails,
+    },
+  };
+
+  const { error: updateErr } = await supabase
+    .from('events')
+    .update({ payload: merged })
+    .eq('event_id', eventId);
+
+  if (updateErr) {
+    console.error('[TeamService] updateSaleDetails update error:', updateErr);
+    throw new Error('Failed to save changes.');
+  }
 }
 
 // ── Internal helper ──
