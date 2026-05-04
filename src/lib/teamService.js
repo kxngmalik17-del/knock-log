@@ -102,14 +102,16 @@ export async function getTeamCoverageGeoJSON() {
 
 
 /**
- * Fetch leaderboard stats for a given date (or week).
- * @param {string} dateStr - 'TODAY', a 'YYYY-MM-DD' string, or 'WEEK'
+ * Fetch leaderboard stats for a given date (or week, yesterday, all-time).
+ * @param {string} dateStr - 'TODAY' | 'YESTERDAY' | 'ALL_TIME' | 'WEEK' | 'YYYY-MM-DD'
  * Returns array of { rep_id, rep_name, doors, convos, sales, close_rate, dph }, sorted by sales.
  */
 export async function getTeamStats(dateStr = 'TODAY') {
-  let startISO, endISO;
+  let startISO, endISO, allTime = false;
 
-  if (dateStr === 'WEEK') {
+  if (dateStr === 'ALL_TIME') {
+    allTime = true;
+  } else if (dateStr === 'WEEK') {
     // Monday of current week
     const now = new Date();
     const day = now.getDay(); // 0=Sun
@@ -118,6 +120,14 @@ export async function getTeamStats(dateStr = 'TODAY') {
     monday.setDate(now.getDate() - diff);
     startISO = monday.toISOString().split('T')[0] + 'T00:00:00.000Z';
     endISO = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString().split('T')[0] + 'T00:00:00.000Z';
+  } else if (dateStr === 'YESTERDAY') {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split('T')[0];
+    startISO = yStr + 'T00:00:00.000Z';
+    const next = new Date(yesterday);
+    next.setDate(next.getDate() + 1);
+    endISO = next.toISOString().split('T')[0] + 'T00:00:00.000Z';
   } else {
     const d = dateStr === 'TODAY' ? new Date().toISOString().split('T')[0] : dateStr;
     startISO = d + 'T00:00:00.000Z';
@@ -126,10 +136,18 @@ export async function getTeamStats(dateStr = 'TODAY') {
     endISO = next.toISOString().split('T')[0] + 'T00:00:00.000Z';
   }
 
+  // Build queries — no date filter for ALL_TIME
+  const knockQuery = supabase.from('events').select('rep_id, payload').eq('type', 'KNOCK');
+  const sessionQuery = supabase.from('events').select('rep_id, type, payload').in('type', ['DAY_START', 'DAY_END']);
+  if (!allTime) {
+    knockQuery.gte('created_at', startISO).lt('created_at', endISO);
+    sessionQuery.gte('created_at', startISO).lt('created_at', endISO);
+  }
+
   // Fetch knocks + session events in parallel
   const [knockRes, sessionRes, repsRes] = await Promise.all([
-    supabase.from('events').select('rep_id, payload').eq('type', 'KNOCK').gte('created_at', startISO).lt('created_at', endISO),
-    supabase.from('events').select('rep_id, type, payload').in('type', ['DAY_START', 'DAY_END']).gte('created_at', startISO).lt('created_at', endISO),
+    knockQuery,
+    sessionQuery,
     supabase.from('reps').select('user_id, display_name'),
   ]);
 

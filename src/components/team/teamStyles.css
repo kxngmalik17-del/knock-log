@@ -92,51 +92,245 @@
   color: #818cf8;
 }
 
-/* ── Date Strip ── */
-.board-date-strip {
+/* ── Quick Date Tabs (Today / Yesterday / All Time + Calendar) ── */
+.board-quick-tabs {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   padding: 14px 16px 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
   flex-shrink: 0;
 }
 
-.board-date-strip::-webkit-scrollbar { display: none; }
-
-.board-date-pill {
-  flex-shrink: 0;
-  padding: 6px 12px;
+.board-quick-tab-group {
+  display: flex;
+  flex: 1;
+  background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 20px;
-  background: rgba(255,255,255,0.03);
+  border-radius: 12px;
+  overflow: hidden;
+  padding: 3px;
+  gap: 2px;
+}
+
+.board-quick-tab {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
   color: var(--text-secondary, #8888a0);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   white-space: nowrap;
 }
 
-.board-date-pill.active {
+.board-quick-tab.active {
+  background: rgba(99, 102, 241, 0.22);
+  color: #a5b4fc;
+  box-shadow: 0 1px 8px rgba(99, 102, 241, 0.25);
+}
+
+.board-cal-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary, #8888a0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.board-cal-btn:active {
+  transform: scale(0.92);
+}
+
+.board-cal-btn.cal-active {
   background: rgba(99, 102, 241, 0.18);
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #818cf8;
+}
+
+.cal-active-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #818cf8;
+  box-shadow: 0 0 6px rgba(129, 140, 248, 0.8);
+}
+
+/* ── Custom Date Picker ── */
+.datepicker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 10000;
+  animation: teamFadeIn 0.2s ease;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.datepicker-panel {
+  width: 100%;
+  max-width: 400px;
+  background: #13131f;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-bottom: none;
+  border-radius: 24px 24px 0 0;
+  padding: 8px 20px 32px;
+  box-shadow: 0 -16px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(99,102,241,0.1);
+  animation: slideUpPicker 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes slideUpPicker {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.datepicker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 4px 14px;
+}
+
+.datepicker-month-label {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary, #f0f0f5);
+  letter-spacing: -0.3px;
+}
+
+.datepicker-nav {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary, #8888a0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.datepicker-nav:active:not(:disabled) {
+  background: rgba(99,102,241,0.2);
+  color: #818cf8;
+  transform: scale(0.9);
+}
+
+.datepicker-day-names {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 6px;
+}
+
+.datepicker-day-name {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted, #55556a);
+  letter-spacing: 0.4px;
+  padding: 4px 0;
+}
+
+.datepicker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-bottom: 20px;
+}
+
+.datepicker-day {
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary, #f0f0f5);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.datepicker-day:active:not(:disabled) {
+  transform: scale(0.88);
+  background: rgba(99,102,241,0.2);
   color: #a5b4fc;
 }
 
-.date-pill-day { font-weight: 700; }
-
-.date-pill-date {
-  font-size: 9px;
-  font-weight: 500;
-  opacity: 0.6;
+.datepicker-day.today {
+  color: #818cf8;
+  font-weight: 800;
+  position: relative;
 }
+
+.datepicker-day.today::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #6366f1;
+}
+
+.datepicker-day.selected {
+  background: rgba(99,102,241,0.25);
+  color: #a5b4fc;
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.4);
+  font-weight: 800;
+}
+
+.datepicker-day.future {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+.datepicker-cancel {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text-secondary, #8888a0);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.datepicker-cancel:active {
+  background: rgba(255,255,255,0.08);
+  transform: scale(0.98);
+}
+
 
 /* ── Team Totals ── */
 .board-team-totals {

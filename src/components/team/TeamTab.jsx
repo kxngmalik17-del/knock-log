@@ -51,6 +51,108 @@ function CloseRing({ pct, size = 44 }) {
   );
 }
 
+// ── Custom Calendar Date Picker ──
+function CustomDatePicker({ onSelect, onClose, currentDate }) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const dayNames = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+  function getDaysInMonth(year, month) {
+    return new Date(year, month + 1, 0).getDate();
+  }
+  function getFirstDayOfMonth(year, month) {
+    return new Date(year, month, 1).getDay();
+  }
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    const now = new Date();
+    if (viewYear > now.getFullYear() || (viewYear === now.getFullYear() && viewMonth >= now.getMonth())) return;
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  }
+
+  const daysInMonth = getDaysInMonth(viewYear, viewMonth);
+  const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
+  const todayISO = today.toISOString().split('T')[0];
+
+  function isFuture(day) {
+    const d = new Date(viewYear, viewMonth, day);
+    return d > today;
+  }
+
+  function isSelected(day) {
+    if (!currentDate || currentDate === 'TODAY' || currentDate === 'YESTERDAY' || currentDate === 'ALL_TIME') return false;
+    const iso = `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    return iso === currentDate;
+  }
+
+  function isToday(day) {
+    const iso = `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    return iso === todayISO;
+  }
+
+  function handleDayClick(day) {
+    if (isFuture(day)) return;
+    const iso = `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    onSelect(iso);
+    onClose();
+  }
+
+  const isAtCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+
+  return (
+    <div className="datepicker-overlay" onClick={onClose}>
+      <div className="datepicker-panel" onClick={e => e.stopPropagation()}>
+        <div className="datepicker-header">
+          <button className="datepicker-nav" onClick={prevMonth}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <span className="datepicker-month-label">{monthNames[viewMonth]} {viewYear}</span>
+          <button className="datepicker-nav" onClick={nextMonth} disabled={isAtCurrentMonth} style={{ opacity: isAtCurrentMonth ? 0.2 : 1 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        </div>
+        <div className="datepicker-day-names">
+          {dayNames.map(d => <span key={d} className="datepicker-day-name">{d}</span>)}
+        </div>
+        <div className="datepicker-grid">
+          {Array.from({ length: firstDay }, (_, i) => (
+            <span key={`empty-${i}`} />
+          ))}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            const future = isFuture(day);
+            const selected = isSelected(day);
+            const todayDay = isToday(day);
+            return (
+              <button
+                key={day}
+                className={`datepicker-day ${selected ? 'selected' : ''} ${todayDay ? 'today' : ''} ${future ? 'future' : ''}`}
+                onClick={() => handleDayClick(day)}
+                disabled={future}
+              >
+                {day}
+              </button>
+            );
+          })}
+        </div>
+        <button className="datepicker-cancel" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 export default function TeamTab({ user, repName, isActive }) {
   const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'ACTIVITY' | 'SALES'
   const [stats, setStats] = useState([]);
@@ -60,6 +162,7 @@ export default function TeamTab({ user, repName, isActive }) {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [boardDate, setBoardDate] = useState('TODAY');
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const longPressTimerRef = useRef(null);
 
@@ -123,25 +226,17 @@ export default function TeamTab({ user, repName, isActive }) {
     return `${diffHrs}h ago`;
   }
 
-  // ── Date strip helpers ──
-  function getDateStrip() {
-    const days = [];
-    const today = new Date();
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const iso = d.toISOString().split('T')[0];
-      const dayName = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : d.toLocaleDateString('en-US', { weekday: 'short' });
-      const dateLabel = i <= 1 ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      days.push({ iso, dayName, dateLabel, value: i === 0 ? 'TODAY' : iso });
-    }
-    return days;
-  }
-
   function handleDateChange(value) {
     setBoardDate(value);
     setLoading(true);
     loadData(value);
+  }
+
+  function getBoardTitle() {
+    if (boardDate === 'TODAY') return "Today's Board";
+    if (boardDate === 'YESTERDAY') return "Yesterday's Board";
+    if (boardDate === 'ALL_TIME') return 'All Time';
+    return new Date(boardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
 
   // Team totals
@@ -197,27 +292,55 @@ export default function TeamTab({ user, repName, isActive }) {
         </button>
       </nav>
 
+      {/* Date Picker Modal */}
+      {showDatePicker && (
+        <CustomDatePicker
+          currentDate={boardDate}
+          onSelect={(iso) => handleDateChange(iso)}
+          onClose={() => setShowDatePicker(false)}
+        />
+      )}
+
       {/* ════════════════════════════════════
            SEGMENT: LEADERBOARD
          ════════════════════════════════════ */}
       {segment === 'LEADERBOARD' && (
         <div className="team-segment-content">
-          {/* Date Strip */}
-          <div className="board-date-strip">
-            <button
-              className={`board-date-pill ${boardDate === 'WEEK' ? 'active' : ''}`}
-              onClick={() => handleDateChange('WEEK')}
-            >This Week</button>
-            {getDateStrip().map(d => (
+          {/* Quick Date Tabs */}
+          <div className="board-quick-tabs">
+            <div className="board-quick-tab-group">
               <button
-                key={d.value}
-                className={`board-date-pill ${boardDate === d.value ? 'active' : ''}`}
-                onClick={() => handleDateChange(d.value)}
-              >
-                <span className="date-pill-day">{d.dayName}</span>
-                {d.dateLabel && <span className="date-pill-date">{d.dateLabel}</span>}
-              </button>
-            ))}
+                id="board-tab-today"
+                className={`board-quick-tab ${boardDate === 'TODAY' ? 'active' : ''}`}
+                onClick={() => handleDateChange('TODAY')}
+              >Today</button>
+              <button
+                id="board-tab-yesterday"
+                className={`board-quick-tab ${boardDate === 'YESTERDAY' ? 'active' : ''}`}
+                onClick={() => handleDateChange('YESTERDAY')}
+              >Yesterday</button>
+              <button
+                id="board-tab-alltime"
+                className={`board-quick-tab ${boardDate === 'ALL_TIME' ? 'active' : ''}`}
+                onClick={() => handleDateChange('ALL_TIME')}
+              >All Time</button>
+            </div>
+            <button
+              id="board-date-picker-btn"
+              className={`board-cal-btn ${boardDate !== 'TODAY' && boardDate !== 'YESTERDAY' && boardDate !== 'ALL_TIME' ? 'cal-active' : ''}`}
+              onClick={() => setShowDatePicker(true)}
+              title="Pick a specific date"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              {boardDate !== 'TODAY' && boardDate !== 'YESTERDAY' && boardDate !== 'ALL_TIME' && (
+                <span className="cal-active-dot" />
+              )}
+            </button>
           </div>
 
           {/* Team Totals */}
@@ -249,9 +372,7 @@ export default function TeamTab({ user, repName, isActive }) {
           )}
 
           <div className="team-section-header">
-            <h2 className="team-section-title">
-              {boardDate === 'TODAY' ? "Today's Board" : boardDate === 'WEEK' ? 'This Week' : new Date(boardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-            </h2>
+            <h2 className="team-section-title">{getBoardTitle()}</h2>
             <button className="team-refresh-btn" onClick={() => loadData()}>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="23 4 23 10 17 10"></polyline>
@@ -274,8 +395,8 @@ export default function TeamTab({ user, repName, isActive }) {
             ) : stats.length === 0 ? (
               <div className="leaderboard-empty">
                 <div className="leaderboard-empty-icon">📊</div>
-                <p>No activity logged{boardDate === 'TODAY' ? ' today yet' : ' on this day'}.</p>
-                <p style={{ fontSize: 12, marginTop: 4 }}>{boardDate === 'TODAY' ? 'Start knocking and watch the board fill up.' : 'Try selecting a different date.'}</p>
+                <p>No activity logged{boardDate === 'TODAY' ? ' today yet' : boardDate === 'ALL_TIME' ? ' yet' : ' on this day'}.</p>
+                <p style={{ fontSize: 12, marginTop: 4 }}>{boardDate === 'TODAY' ? 'Start knocking and watch the board fill up.' : 'Try selecting a different date range.'}</p>
               </div>
             ) : (
               stats.map((rep, idx) => {
