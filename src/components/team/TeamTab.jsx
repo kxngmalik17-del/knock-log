@@ -195,6 +195,7 @@ export default function TeamTab({ user, repName, isActive }) {
       email:           sale.details.email           || '',
       service_date:    sale.details.service_date    || '',
       payment_method:  sale.details.payment_method  || '',
+      job_status:      sale.job_status              || 'PREBOOKED',
     });
   }
 
@@ -209,7 +210,7 @@ export default function TeamTab({ user, repName, isActive }) {
       // Optimistically update local state
       setAllSales(prev => prev.map(s =>
         s.id === editSale.id
-          ? { ...s, rep_name: editForm.rep_override || s.rep_name, details: { ...s.details, ...editForm } }
+          ? { ...s, rep_name: editForm.rep_override || s.rep_name, details: { ...s.details, ...editForm }, job_status: editForm.job_status }
           : s
       ));
       showToast('Sale updated!', 'success');
@@ -632,9 +633,11 @@ export default function TeamTab({ user, repName, isActive }) {
                 );
               }
 
-              return filtered.map((sale) => (
+              return filtered.map((sale) => {
+                const isCancelled = sale.job_status === 'CANCELLED';
+                return (
                 <div
-                  className="sale-book-card"
+                  className={`sale-book-card ${isCancelled ? 'sale-cancelled' : ''}`}
                   key={sale.id}
                   onTouchStart={() => handleCardPressStart(sale)}
                   onTouchEnd={handleCardPressEnd}
@@ -647,7 +650,12 @@ export default function TeamTab({ user, repName, isActive }) {
                   <div className="sale-book-header">
                     <div className="sale-book-main">
                       <div className="sale-homeowner">{sale.details.homeowner_name || <span style={{ color: '#55556a', fontStyle: 'italic' }}>Anonymous Customer</span>}</div>
-                      <div className="sale-address">{sale.address}</div>
+                      <div className="sale-address">
+                        <span className={`sale-status-badge status-${(sale.job_status || 'PREBOOKED').toLowerCase()}`}>
+                          {sale.job_status || 'PREBOOKED'}
+                        </span>
+                        <span className="sale-address-text">{sale.address}</span>
+                      </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div className="sale-amount-badge">
@@ -704,8 +712,8 @@ export default function TeamTab({ user, repName, isActive }) {
                     )}
                   </div>
                 </div>
-              ));
-            })()}
+                );
+              })()}
           </div>
         </div>
       )}
@@ -725,6 +733,19 @@ export default function TeamTab({ user, repName, isActive }) {
             </div>
 
             <div className="edit-form-grid">
+              <div className="edit-form-field">
+                <label className="edit-form-label">Job Status</label>
+                <select
+                  className="edit-form-input edit-form-select"
+                  style={{ fontWeight: 800, color: editForm.job_status === 'COMPLETED' ? '#10b981' : editForm.job_status === 'CANCELLED' ? '#ef4444' : '#f59e0b' }}
+                  value={editForm.job_status}
+                  onChange={e => setEditForm(f => ({ ...f, job_status: e.target.value }))}
+                >
+                  <option value="PREBOOKED">Prebooked</option>
+                  <option value="COMPLETED">Completed</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+              </div>
               <div className="edit-form-field">
                 <label className="edit-form-label">Closed By (Rep)</label>
                 <input

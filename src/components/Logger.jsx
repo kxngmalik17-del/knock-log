@@ -498,6 +498,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       job_total: saleJobTotal || null,
       payment_method: salePayment || null,
       service_date: saleServiceDate || null,
+      job_status: 'PREBOOKED',
     };
     logKnock('SALE', null, null, saleDetails);
   }

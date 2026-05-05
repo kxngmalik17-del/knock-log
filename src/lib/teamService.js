@@ -199,11 +199,15 @@ export async function getTeamStats(dateStr = 'TODAY') {
       repData[rid].doors++;
     }
     if (resolvedStatus === 'SALE') {
-      repData[rid].sales++;
-      // Accumulate revenue from sale_details if present
-      if (p.sale_details?.job_total) {
-        const num = parseFloat(String(p.sale_details.job_total).replace(/[^0-9.]/g, ''));
-        if (!isNaN(num)) repData[rid].revenue = (repData[rid].revenue || 0) + num;
+      if (p.sale_details?.job_status === 'CANCELLED') {
+        repData[rid].convos++;
+      } else {
+        repData[rid].sales++;
+        // Accumulate revenue from sale_details if present
+        if (p.sale_details?.job_total) {
+          const num = parseFloat(String(p.sale_details.job_total).replace(/[^0-9.]/g, ''));
+          if (!isNaN(num)) repData[rid].revenue = (repData[rid].revenue || 0) + num;
+        }
       }
     } else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) repData[rid].convos++;
   }
@@ -263,17 +267,19 @@ export async function getTeamActivity() {
         rep_id: rid,
         rep_name: repName,
         status: status,
-        street_name: streetName,
+        job_status: sd?.job_status || 'PREBOOKED',
+        address: `${p.house_number || ''} ${p.street_name || ''}`.trim(),
         timestamp: timestamp,
         sale_details: sd,
       });
     }
 
     // 2. Build Team Radar (Only the most recent knock per rep)
-    if (!radarMap[rid]) {
+    if (!radarMap[rid] || timestamp > radarMap[rid].timestamp) {
       radarMap[rid] = {
         rep_id: rid,
         rep_name: repName,
+        status: status,
         street_name: streetName,
         timestamp: timestamp
       };
@@ -321,6 +327,7 @@ export async function getAllSales() {
         address: `${p.house_number || ''} ${p.street_name || ''}`.trim(),
         timestamp: p.timestamp || row.created_at,
         details: p.sale_details || {},
+        job_status: p.sale_details?.job_status || 'PREBOOKED',
       });
     }
   }

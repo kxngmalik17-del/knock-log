@@ -787,9 +787,51 @@
 .sale-address {
   font-size: 12px;
   color: var(--text-secondary, #8888a0);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sale-address-text {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sale-status-badge {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.sale-status-badge.status-prebooked {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.sale-status-badge.status-completed {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.sale-status-badge.status-cancelled {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Cancelled Card Styling */
+.sale-book-card.sale-cancelled {
+  opacity: 0.65;
+}
+.sale-book-card.sale-cancelled .sale-amount-badge,
+.sale-book-card.sale-cancelled .sale-homeowner,
+.sale-book-card.sale-cancelled .sale-detail-val {
+  text-decoration: line-through;
+  color: var(--text-muted, #55556a);
 }
 
 .sale-amount-badge {
