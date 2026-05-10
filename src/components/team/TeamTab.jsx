@@ -4,6 +4,7 @@ import {
   getTeamActivity,
   getAllSales,
   updateSaleDetails,
+  deleteSaleEvent,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
@@ -215,8 +216,27 @@ export default function TeamTab({ user, repName, isActive }) {
       ));
       showToast('Sale updated!', 'success');
       setEditSale(null);
+      loadData(); // Sync leaderboard
     } catch (err) {
       showToast(err.message || 'Save failed.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteSale() {
+    if (!editSale?.event_id) return;
+    if (!window.confirm('Are you sure you want to permanently delete this sale? This action cannot be undone.')) return;
+    
+    setSaving(true);
+    try {
+      await deleteSaleEvent(editSale.event_id);
+      setAllSales(prev => prev.filter(s => s.id !== editSale.id));
+      showToast('Sale permanently deleted.', 'success');
+      setEditSale(null);
+      loadData(); // Sync leaderboard
+    } catch (err) {
+      showToast(err.message || 'Delete failed.', 'error');
     } finally {
       setSaving(false);
     }
@@ -825,11 +845,16 @@ export default function TeamTab({ user, repName, isActive }) {
               </div>
             </div>
 
-            <div className="edit-form-actions">
-              <button className="edit-cancel-btn" onClick={() => setEditSale(null)} disabled={saving}>Cancel</button>
-              <button className="edit-save-btn" onClick={handleSaveEdit} disabled={saving}>
-                {saving ? 'Saving…' : 'Save Changes'}
+            <div className="edit-form-actions" style={{ justifyContent: 'space-between' }}>
+              <button className="edit-cancel-btn" style={{ background: '#ef444420', color: '#ef4444', borderColor: 'transparent' }} onClick={handleDeleteSale} disabled={saving}>
+                Delete Sale
               </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="edit-cancel-btn" onClick={() => setEditSale(null)} disabled={saving}>Cancel</button>
+                <button className="edit-save-btn" onClick={handleSaveEdit} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

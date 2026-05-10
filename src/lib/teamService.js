@@ -442,3 +442,18 @@ function resolveStatus(p) {
   if (p.objection_type === 'CONSTRUCTION') return 'CONSTRUCTION';
   return 'CONVO';
 }
+
+/**
+ * Delete a KNOCK event completely from the database.
+ */
+export async function deleteSaleEvent(eventId) {
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('event_id', eventId);
+
+  if (error) {
+    console.error('[TeamService] deleteSaleEvent error:', error);
+    throw new Error('Failed to delete sale.');
+  }
+}
