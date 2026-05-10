@@ -136,33 +136,59 @@ export async function getTeamStats(dateStr = 'TODAY') {
     endISO = next.toISOString().split('T')[0] + 'T00:00:00.000Z';
   }
 
-  // Build queries — no date filter for ALL_TIME
-  const knockQuery = supabase.from('events').select('rep_id, payload').eq('type', 'KNOCK');
-  const sessionQuery = supabase.from('events').select('rep_id, type, payload').in('type', ['DAY_START', 'DAY_END']);
-  if (!allTime) {
-    knockQuery.gte('created_at', startISO).lt('created_at', endISO);
-    sessionQuery.gte('created_at', startISO).lt('created_at', endISO);
-  }
+  // Helper for pagination
+  const fetchAllKnocks = async () => {
+    const allData = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      let q = supabase.from('events').select('rep_id, payload').eq('type', 'KNOCK');
+      if (!allTime) q = q.gte('created_at', startISO).lt('created_at', endISO);
+      const { data, error } = await q.range(from, from + PAGE_SIZE - 1);
+      if (error || !data) break;
+      allData.push(...data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return allData;
+  };
+
+  const fetchAllSessions = async () => {
+    const allData = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      let q = supabase.from('events').select('rep_id, type, payload').in('type', ['DAY_START', 'DAY_END']);
+      if (!allTime) q = q.gte('created_at', startISO).lt('created_at', endISO);
+      const { data, error } = await q.range(from, from + PAGE_SIZE - 1);
+      if (error || !data) break;
+      allData.push(...data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return allData;
+  };
 
   // Fetch knocks + session events in parallel
-  const [knockRes, sessionRes, repsRes] = await Promise.all([
-    knockQuery,
-    sessionQuery,
+  const [knockResData, sessionResData, repsRes] = await Promise.all([
+    fetchAllKnocks(),
+    fetchAllSessions(),
     supabase.from('reps').select('user_id, display_name'),
   ]);
 
-  if (knockRes.error || !knockRes.data) {
-    console.error('[TeamService] Failed to fetch team stats:', knockRes.error);
-    return [];
-  }
+
 
   const repNameMap = {};
-  (repsRes.data || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
+  const nameToIdMap = {};
+  (repsRes.data || []).forEach(r => { 
+    repNameMap[r.user_id] = r.display_name; 
+    nameToIdMap[r.display_name.toLowerCase()] = r.user_id;
+  });
 
   // Build session hours per rep
   const sessionHours = {};
   const sessionStarts = {};
-  for (const row of (sessionRes.data || [])) {
+  for (const row of sessionResData) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
     const rid = row.rep_id;
     if (row.type === 'DAY_START' && p.start_time) {
@@ -182,34 +208,52 @@ export async function getTeamStats(dateStr = 'TODAY') {
   const repData = {};
   const seenAddresses = {};
 
-  for (const row of knockRes.data) {
+  for (const row of knockResData) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
     const rid = row.rep_id;
     const address = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
     if (!address) continue;
 
-    if (!repData[rid]) {
-      repData[rid] = { rep_id: rid, rep_name: repNameMap[rid] || 'Rep', doors: 0, convos: 0, sales: 0 };
-      seenAddresses[rid] = new Set();
+    const resolvedStatus = resolveStatus(p);
+
+    let eventRid = rid;
+    if (resolvedStatus === 'SALE' && p.sale_details?.rep_override) {
+      const overrideStr = p.sale_details.rep_override.trim();
+      if (overrideStr) {
+        const matchId = nameToIdMap[overrideStr.toLowerCase()];
+        if (matchId) {
+          eventRid = matchId;
+        } else {
+          eventRid = 'override_' + overrideStr.toLowerCase();
+          repNameMap[eventRid] = overrideStr;
+        }
+      }
     }
 
-    const resolvedStatus = resolveStatus(p);
-    if (!seenAddresses[rid].has(address)) {
-      seenAddresses[rid].add(address);
-      repData[rid].doors++;
+    if (!repData[eventRid]) {
+      repData[eventRid] = { rep_id: eventRid, rep_name: repNameMap[eventRid] || 'Rep', doors: 0, convos: 0, sales: 0 };
+      seenAddresses[eventRid] = new Set();
     }
+
+    if (!seenAddresses[eventRid].has(address)) {
+      seenAddresses[eventRid].add(address);
+      repData[eventRid].doors++;
+    }
+
     if (resolvedStatus === 'SALE') {
       if (p.sale_details?.job_status === 'CANCELLED') {
-        repData[rid].convos++;
+        repData[eventRid].convos++;
       } else {
-        repData[rid].sales++;
+        repData[eventRid].sales++;
         // Accumulate revenue from sale_details if present
         if (p.sale_details?.job_total) {
           const num = parseFloat(String(p.sale_details.job_total).replace(/[^0-9.]/g, ''));
-          if (!isNaN(num)) repData[rid].revenue = (repData[rid].revenue || 0) + num;
+          if (!isNaN(num)) repData[eventRid].revenue = (repData[eventRid].revenue || 0) + num;
         }
       }
-    } else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) repData[rid].convos++;
+    } else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) {
+      repData[eventRid].convos++;
+    }
   }
 
   return Object.values(repData)
@@ -230,16 +274,25 @@ export async function getTeamStats(dateStr = 'TODAY') {
 export async function getTeamActivity() {
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const { data: events, error } = await supabase
-    .from('events')
-    .select('rep_id, payload, created_at')
-    .eq('type', 'KNOCK')
-    .gte('created_at', todayStr + 'T00:00:00.000Z')
-    .order('created_at', { ascending: false });
+  const events = [];
+  let from = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('rep_id, payload, created_at')
+      .eq('type', 'KNOCK')
+      .gte('created_at', todayStr + 'T00:00:00.000Z')
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
 
-  if (error || !events) {
-    console.error('[TeamService] Failed to fetch team activity:', error);
-    return { feed: [], radar: [] };
+    if (error || !data) {
+      console.error('[TeamService] Failed to fetch team activity:', error);
+      break;
+    }
+    events.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
   const { data: reps } = await supabase.from('reps').select('user_id, display_name');
@@ -298,15 +351,24 @@ export async function getTeamActivity() {
  * This is used for the persistent "Sales Book" / Customer List.
  */
 export async function getAllSales() {
-  const { data: events, error } = await supabase
-    .from('events')
-    .select('event_id, rep_id, payload, created_at')
-    .eq('type', 'KNOCK')
-    .order('created_at', { ascending: false });
+  const events = [];
+  let from = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('event_id, rep_id, payload, created_at')
+      .eq('type', 'KNOCK')
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
 
-  if (error || !events) {
-    console.error('[TeamService] Failed to fetch all sales:', error);
-    return [];
+    if (error || !data) {
+      console.error('[TeamService] Failed to fetch all sales:', error);
+      break;
+    }
+    events.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
   const { data: reps } = await supabase.from('reps').select('user_id, display_name');

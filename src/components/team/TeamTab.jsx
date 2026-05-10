@@ -713,7 +713,8 @@ export default function TeamTab({ user, repName, isActive }) {
                   </div>
                 </div>
                 );
-              })()}
+              });
+            })()}
           </div>
         </div>
       )}
