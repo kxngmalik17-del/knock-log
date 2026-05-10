@@ -231,6 +231,14 @@ export default function TeamTab({ user, repName, isActive }) {
     setSaving(true);
     try {
       await deleteSaleEvent(editSale.event_id);
+      
+      try {
+        await sqlocal.sql`DELETE FROM events WHERE event_id = ${editSale.event_id}`;
+        window.dispatchEvent(new Event('sync-local-events'));
+      } catch (localErr) {
+        console.warn('Local delete failed:', localErr);
+      }
+
       setAllSales(prev => prev.filter(s => s.id !== editSale.id));
       showToast('Sale permanently deleted.', 'success');
       setEditSale(null);

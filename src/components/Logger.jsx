@@ -208,9 +208,16 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     const unsub = syncEngine.subscribe(updateSyncStatus);
     updateSyncStatus();
 
+    const handleSyncLocalEvents = () => {
+      loadRepStats();
+      bootstrapLocal();
+    };
+    window.addEventListener('sync-local-events', handleSyncLocalEvents);
+
     return () => { 
       unsub(); 
       syncEngine.stop();
+      window.removeEventListener('sync-local-events', handleSyncLocalEvents);
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
