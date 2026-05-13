@@ -5,6 +5,7 @@ import {
   getAllSales,
   updateSaleDetails,
   deleteSaleEvent,
+  calculateCommission,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
 import './teamStyles.css';
@@ -610,11 +611,18 @@ export default function TeamTab({ user, repName, isActive }) {
           {/* Header: title + total revenue */}
           <div className="team-section-header">
             <h2 className="team-section-title">Sales Book</h2>
-            <div className="team-total-revenue-pill">
-               ${allSales.reduce((sum, s) => {
-                 const val = parseFloat(String(s.details?.job_total || '0').replace(/[^0-9.]/g, ''));
-                 return sum + (isNaN(val) ? 0 : val);
-               }, 0).toLocaleString()}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <div className="team-total-revenue-pill" title="Total Revenue">
+                 ${allSales.reduce((sum, s) => {
+                   const val = parseFloat(String(s.details?.job_total || '0').replace(/[^0-9.]/g, ''));
+                   return sum + (isNaN(val) ? 0 : val);
+                 }, 0).toLocaleString()}
+              </div>
+              <div className="team-total-revenue-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }} title="Total Commission">
+                 ${allSales.reduce((sum, s) => {
+                   return sum + calculateCommission(s.details?.job_total);
+                 }, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </div>
             </div>
           </div>
 
@@ -689,6 +697,11 @@ export default function TeamTab({ user, repName, isActive }) {
                       <div className="sale-amount-badge">
                         {sale.details.job_total ? `$${sale.details.job_total}` : <span style={{ color: '#55556a' }}>—</span>}
                       </div>
+                      {sale.details.job_total && (
+                        <div className="sale-commission-badge">
+                          ${calculateCommission(sale.details.job_total).toFixed(0)}
+                        </div>
+                      )}
                       <button
                         className="sale-edit-btn"
                         id={`sale-edit-${sale.id}`}
@@ -930,8 +943,8 @@ export default function TeamTab({ user, repName, isActive }) {
                 return <p style={{ color: '#8888a0', textAlign: 'center', marginTop: 12, fontSize: 13 }}>No job total on record.</p>;
               }
 
-              const commissionPct = jobTotal <= 398 ? 0.25 : 0.40;
-              const commissionVal = jobTotal * commissionPct;
+              const commissionVal = calculateCommission(jobTotal);
+              const commissionPct = (commissionVal / jobTotal) * 100;
               const labourCost = 40;
               const companyProfit = jobTotal - commissionVal - labourCost;
 

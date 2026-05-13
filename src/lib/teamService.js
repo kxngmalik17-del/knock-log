@@ -457,3 +457,21 @@ export async function deleteSaleEvent(eventId) {
     throw new Error('Failed to delete sale.');
   }
 }
+/**
+ * Calculate commission based on job total.
+ * - $348 and below: 25%
+ * - $349 to $400: 30%
+ * - $401 and above: 40%
+ */
+export function calculateCommission(amount) {
+  if (!amount) return 0;
+  // Handle strings like "$350" or "350"
+  const num = typeof amount === 'number' ? amount : parseFloat(String(amount).replace(/[^0-9.]/g, ''));
+  if (isNaN(num) || num <= 0) return 0;
+
+  let pct = 0.25;
+  if (num > 400) pct = 0.40;
+  else if (num >= 349) pct = 0.30;
+
+  return num * pct;
+}

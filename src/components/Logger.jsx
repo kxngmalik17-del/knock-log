@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { sqlocal, insertLocalEvent, updateLocalEvent, softDeleteLocalEvent } from '../lib/db';
 import { syncEngine } from '../lib/syncEngine';
+import { calculateCommission } from '../lib/teamService';
 
 const OUTCOMES = [
   { key: 'NO_ANSWER', label: 'NO ANSWER', color: '#6b7280' },
@@ -116,8 +117,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
               allSales++;
               const num = parseFloat(String(p.sale_details?.job_total || '0').replace(/[^0-9.]/g, ''));
               if (!isNaN(num) && num > 0) {
-                const pct = num <= 398 ? 0.25 : 0.40;
-                allCommission += num * pct;
+                allCommission += calculateCommission(num);
               }
             }
           }
