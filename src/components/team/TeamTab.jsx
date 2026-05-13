@@ -618,8 +618,9 @@ export default function TeamTab({ user, repName, isActive }) {
                    return sum + (isNaN(val) ? 0 : val);
                  }, 0).toLocaleString()}
               </div>
-              <div className="team-total-revenue-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }} title="Total Commission">
+              <div className="team-total-revenue-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }} title="Your Commission">
                  ${allSales.reduce((sum, s) => {
+                   if (s.rep_id !== user?.id) return sum;
                    return sum + calculateCommission(s.details?.job_total);
                  }, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </div>
@@ -697,11 +698,6 @@ export default function TeamTab({ user, repName, isActive }) {
                       <div className="sale-amount-badge">
                         {sale.details.job_total ? `$${sale.details.job_total}` : <span style={{ color: '#55556a' }}>—</span>}
                       </div>
-                      {sale.details.job_total && (
-                        <div className="sale-commission-badge">
-                          ${calculateCommission(sale.details.job_total).toFixed(0)}
-                        </div>
-                      )}
                       <button
                         className="sale-edit-btn"
                         id={`sale-edit-${sale.id}`}
