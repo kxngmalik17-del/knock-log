@@ -172,21 +172,28 @@ export async function getTeamHistory() {
       repNameMap[r.user_id] = r.display_name;
     });
 
-    // 2. Fetch events from last 30 days to optimize size/speed
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const dateStr = thirtyDaysAgo.toISOString();
+    // 2. Paginate through ALL events — no date restriction
+    const PAGE_SIZE = 1000;
+    const serverEvents = [];
+    let from = 0;
 
-    const { data: serverEvents, error } = await supabase
-      .from('events')
-      .select('event_id, rep_id, type, payload, created_at')
-      .in('type', ['DAY_START', 'DAY_END', 'KNOCK', 'BREAK_START', 'BREAK_END'])
-      .gte('created_at', dateStr)
-      .order('created_at', { ascending: true });
+    while (true) {
+      const { data, error } = await supabase
+        .from('events')
+        .select('event_id, rep_id, type, payload, created_at')
+        .in('type', ['DAY_START', 'DAY_END', 'KNOCK', 'BREAK_START', 'BREAK_END'])
+        .order('created_at', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
 
-    if (error) {
-      console.error('[History] Failed to fetch team history events:', error);
-      return [];
+      if (error) {
+        console.error('[History] Failed to fetch team history events:', error);
+        break;
+      }
+
+      if (!data || data.length === 0) break;
+      serverEvents.push(...data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
 
     // 3. Fold mechanism to group by session_id
