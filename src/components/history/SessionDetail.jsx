@@ -25,7 +25,7 @@ export default function SessionDetail({ session, onBack, user }) {
   // Re-generate Export logic tightly bound to local structured data
   function handleExport() {
     const rows = [
-      ['Date', 'Time', 'Street', 'House Number', 'Outcome', 'Objection/Status', 'Callback Time']
+      ['Representative', 'Date', 'Time', 'Street', 'House Number', 'Outcome', 'Objection/Status', 'Callback Time', 'Notes']
     ];
     
     session.events.forEach(e => {
@@ -42,22 +42,26 @@ export default function SessionDetail({ session, onBack, user }) {
         }
 
         rows.push([
+          session.rep_name || user?.display_name || 'Me',
           td.toLocaleDateString(),
           td.toLocaleTimeString(),
           street,
           house,
           e.outcome || '',
           e.objection || '',
-          e.callback_time ? new Date(e.callback_time).toLocaleString() : ''
+          e.callback_time ? new Date(e.callback_time).toLocaleString() : '',
+          e.notes || ''
         ]);
       } else if (e.type === 'BREAK') {
         const td = new Date(e.time);
         rows.push([
+          session.rep_name || user?.display_name || 'Me',
           td.toLocaleDateString(),
           td.toLocaleTimeString(),
           'BREAK',
           '',
           e.duration ? `${Math.floor(e.duration/60)} min` : 'Active',
+          '',
           '',
           ''
         ]);
@@ -71,7 +75,7 @@ export default function SessionDetail({ session, onBack, user }) {
     
     const a = document.createElement('a');
     a.href = url;
-    a.download = `KnockLog_${user.id.substring(0,6)}_${dStr}.csv`;
+    a.download = `KnockLog_${session.rep_name ? session.rep_name.replace(/\s+/g, '_') : user.id.substring(0,6)}_${dStr}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -86,6 +90,11 @@ export default function SessionDetail({ session, onBack, user }) {
       </div>
 
       <div className="detail-summary">
+        {session.rep_name && (
+          <div style={{ textAlign: 'center', marginBottom: 12, fontWeight: 700, fontSize: 14, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Rep: {session.rep_name}
+          </div>
+        )}
         <div className="detail-grid">
           <div className="d-stat">
             <span className="d-val">{session.total_doors}</span>

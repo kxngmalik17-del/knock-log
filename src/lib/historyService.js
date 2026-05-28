@@ -147,3 +147,166 @@ export async function forceSyncHistoryDeltas(repId) {
   
   return false;
 }
+
+/**
+ * FETCH TEAM HISTORY
+ * Queries Supabase events for DAY_START, DAY_END, KNOCK, BREAK_START, BREAK_END across all reps.
+ * Folds them into structured team session records.
+ */
+export async function getTeamHistory() {
+  if (!navigator.onLine) return [];
+  
+  try {
+    // 1. Fetch reps profile mapping
+    const { data: repsRes, error: repsError } = await supabase
+      .from('reps')
+      .select('user_id, display_name');
+
+    if (repsError) {
+      console.error('[History] Failed to fetch reps map for team history:', repsError);
+      return [];
+    }
+
+    const repNameMap = {};
+    (repsRes || []).forEach(r => {
+      repNameMap[r.user_id] = r.display_name;
+    });
+
+    // 2. Fetch events from last 30 days to optimize size/speed
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const dateStr = thirtyDaysAgo.toISOString();
+
+    const { data: serverEvents, error } = await supabase
+      .from('events')
+      .select('event_id, rep_id, type, payload, created_at')
+      .in('type', ['DAY_START', 'DAY_END', 'KNOCK', 'BREAK_START', 'BREAK_END'])
+      .gte('created_at', dateStr)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[History] Failed to fetch team history events:', error);
+      return [];
+    }
+
+    // 3. Fold mechanism to group by session_id
+    const sessionsMap = {};
+
+    for (let row of serverEvents) {
+      const payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+      const repId = row.rep_id;
+      const repName = repNameMap[repId] || 'Teammate';
+
+      if (row.type === 'DAY_START') {
+        const sId = payload.session_id;
+        if (sId && !sessionsMap[sId]) {
+          sessionsMap[sId] = {
+            session_id: sId,
+            rep_id: repId,
+            rep_name: repName,
+            session_date: payload.session_date,
+            started_at: payload.start_time || row.created_at,
+            status: 'ACTIVE',
+            events: [],
+            total_doors: 0,
+            total_sales: 0,
+            total_convos: 0,
+            territory: []
+          };
+        }
+      } 
+      else if (row.type === 'DAY_END') {
+        const sId = payload.session_id;
+        if (sId && sessionsMap[sId]) {
+          sessionsMap[sId].ended_at = payload.end_time || row.created_at;
+          sessionsMap[sId].status = 'CLOSED';
+          sessionsMap[sId].export_status = payload.export_status;
+          sessionsMap[sId].export_url = payload.export_url;
+        }
+      }
+      else if (row.type === 'KNOCK') {
+        const sId = payload.session_id;
+        if (sId) {
+          if (!sessionsMap[sId]) {
+            const dateOnly = new Date(row.created_at).toISOString().split('T')[0];
+            sessionsMap[sId] = {
+              session_id: sId,
+              rep_id: repId,
+              rep_name: repName,
+              session_date: dateOnly,
+              started_at: row.created_at,
+              status: 'CLOSED', // assume closed if no DAY_START event was captured
+              events: [],
+              total_doors: 0,
+              total_sales: 0,
+              total_convos: 0,
+              territory: []
+            };
+          }
+
+          const item = {
+            id: row.event_id,
+            type: 'KNOCK',
+            time: payload.timestamp || row.created_at,
+            address: `${payload.house_number || ''} ${payload.street_name || ''}`.trim(),
+            outcome: payload.outcome_type,
+            objection: payload.objection_type || payload.convo_status,
+            callback_time: payload.callback_time,
+            notes: payload.notes,
+            lat: payload.lat,
+            lng: payload.lng,
+            synced: true
+          };
+          
+          sessionsMap[sId].events.push(item);
+          sessionsMap[sId].total_doors += 1;
+          if (payload.outcome_type === 'CONVO') sessionsMap[sId].total_convos += 1;
+          if (payload.outcome_type === 'SALE') {
+            sessionsMap[sId].total_sales += 1;
+            sessionsMap[sId].total_convos += 1;
+          }
+          
+          const street = payload.street_name;
+          if (street && !sessionsMap[sId].territory.includes(street)) {
+            sessionsMap[sId].territory.push(street);
+          }
+        }
+      }
+      else if (row.type === 'BREAK_START') {
+        const sId = payload.session_id;
+        if (sId && sessionsMap[sId]) {
+          sessionsMap[sId].events.push({
+            id: payload.break_id,
+            type: 'BREAK',
+            time: payload.break_start_time || row.created_at,
+            synced: true
+          });
+        }
+      }
+      else if (row.type === 'BREAK_END') {
+        const sId = payload.session_id;
+        if (sId && sessionsMap[sId]) {
+          const brk = sessionsMap[sId].events.find(e => e.type === 'BREAK' && e.id === payload.break_id);
+          if (brk) {
+            brk.duration = payload.duration;
+          }
+        }
+      }
+    }
+
+    // Convert map to array and sort by start time descending
+    const sessions = Object.values(sessionsMap).sort(
+      (a, b) => new Date(b.started_at) - new Date(a.started_at)
+    );
+
+    // Sort events within each session
+    sessions.forEach(s => {
+      s.events.sort((a, b) => new Date(a.time) - new Date(b.time));
+    });
+
+    return sessions;
+  } catch (err) {
+    console.error('[History] Error in getTeamHistory:', err);
+    return [];
+  }
+}
