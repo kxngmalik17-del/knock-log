@@ -78,33 +78,73 @@ export async function getTeamGeoJSON(currentUserId, filterMode = null) {
  * @param {string|null} filterMode - 'RESIDENTIAL' | 'COMMERCIAL' | null
  */
 export async function getTeamCoverageGeoJSON(filterMode = null) {
-  // If COMMERCIAL, fetch directly from leads table if available for accurate pipeline stage and target keys
+  // If COMMERCIAL, fetch directly from commercial_opportunities & knock_events for accurate pipeline stage and target keys
   if (filterMode === MODES.COMMERCIAL) {
-    const { data: leadsData, error: leadsErr } = await supabase
-      .from('leads')
-      .select('*');
+    const [oppsRes, knocksRes] = await Promise.all([
+      supabase.from('commercial_opportunities').select('*'),
+      supabase.from('knock_events').select('*').eq('mode', 'commercial').not('lat', 'is', null)
+    ]);
 
-    if (!leadsErr && leadsData && leadsData.length > 0) {
-      const features = leadsData
-        .filter(l => l.lat && l.lng)
-        .map(l => ({
+    const features = [];
+    const seen = new Set();
+
+    if (oppsRes.data) {
+      for (const o of oppsRes.data) {
+        if (!o.lat || !o.lng) continue;
+        const key = `${o.company_name || ''}_${o.address || ''}_${o.unit_number || ''}`.toLowerCase();
+        seen.add(key);
+
+        let uiStage = 'COLD';
+        const s = (o.stage || '').toLowerCase();
+        if (s === 'walkthrough_scheduled' || s === 'walkthrough_booked') uiStage = 'WALKTHROUGH_BOOKED';
+        else if (s === 'proposal_sent' || s === 'quoted') uiStage = 'QUOTED';
+        else if (s === 'won') uiStage = 'WON';
+        else if (s === 'lost') uiStage = 'LOST';
+        else if (s === 'dm_identified') uiStage = 'DM_IDENTIFIED';
+        else if (s === 'contacted') uiStage = 'CONTACTED';
+        else if (LEAD_STAGES.includes(o.stage)) uiStage = o.stage;
+
+        features.push({
           type: 'Feature',
-          geometry: { type: 'Point', coordinates: [l.lng, l.lat] },
+          geometry: { type: 'Point', coordinates: [o.lng, o.lat] },
           properties: {
-            address: l.address || '',
-            business_name: l.business_name || '',
-            suite: l.suite || '',
-            last_status: l.stage || 'COLD',
-            stage: l.stage || 'COLD',
-            last_knocked_at: l.updated_at || l.created_at,
+            address: o.address || '',
+            business_name: o.company_name || '',
+            suite: o.unit_number || '',
+            last_status: uiStage,
+            stage: uiStage,
+            last_knocked_at: o.updated_at || o.created_at,
             mode: MODES.COMMERCIAL,
           }
-        }));
-
-      if (features.length > 0) {
-        return { type: 'FeatureCollection', features };
+        });
       }
     }
+
+    if (knocksRes.data) {
+      for (const k of knocksRes.data) {
+        if (!k.lat || !k.lng) continue;
+        const bName = k.company_name || k.business_name || '';
+        const key = `${bName}_${k.street_name || ''}_${k.unit_number || ''}`.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [k.lng, k.lat] },
+          properties: {
+            address: `${k.house_number ? k.house_number + ' ' : ''}${k.street_name || ''}`.trim(),
+            business_name: bName,
+            suite: k.unit_number || '',
+            last_status: k.outcome_type,
+            stage: k.outcome_type === 'WALKTHROUGH_BOOKED' ? 'WALKTHROUGH_BOOKED' : 'COLD',
+            last_knocked_at: k.timestamp || k.created_at,
+            mode: MODES.COMMERCIAL,
+          }
+        });
+      }
+    }
+
+    return { type: 'FeatureCollection', features };
   }
 
   const allRows = [];
@@ -592,34 +632,79 @@ export async function getLeads() {
   const repNameMap = {};
   (reps || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
 
-  const { data: leads, error } = await supabase
-    .from('leads')
+  const { data: opps, error: oppErr } = await supabase
+    .from('commercial_opportunities')
     .select('*')
     .order('updated_at', { ascending: false });
 
-  if (error || !leads) {
-    console.warn('[TeamService] getLeads query error (leads table may be unmigrated):', error);
-    return [];
+  if (oppErr) {
+    console.warn('[TeamService] getLeads commercial_opportunities error:', oppErr);
   }
 
-  return leads.map(l => ({
-    ...l,
-    owner_name: repNameMap[l.owner_rep_id] || 'Team Lead',
-    address: `${l.house_number || ''} ${l.street_name || ''}`.trim()
-  }));
+  const leads = (opps || []).map(o => {
+    let uiStage = 'COLD';
+    const s = (o.stage || '').toLowerCase();
+    if (s === 'walkthrough_scheduled' || s === 'walkthrough_booked') uiStage = 'WALKTHROUGH_BOOKED';
+    else if (s === 'proposal_sent' || s === 'quoted') uiStage = 'QUOTED';
+    else if (s === 'won') uiStage = 'WON';
+    else if (s === 'lost') uiStage = 'LOST';
+    else if (s === 'dm_identified') uiStage = 'DM_IDENTIFIED';
+    else if (s === 'contacted') uiStage = 'CONTACTED';
+    else if (s === 'knocked' || s === 'cold' || s === 'identified') uiStage = 'COLD';
+    else if (LEAD_STAGES.includes(o.stage)) uiStage = o.stage;
+
+    return {
+      id: o.id,
+      target_key: `${o.company_name || ''}_${o.address || ''}_${o.unit_number || ''}`,
+      business_name: o.company_name,
+      company_name: o.company_name,
+      address: o.address || '',
+      suite: o.unit_number || '',
+      city: o.city || 'Toronto',
+      lat: o.lat,
+      lng: o.lng,
+      stage: uiStage,
+      contacts: o.dm_name ? [{ name: o.dm_name, title: o.dm_title || '', phone: o.dm_phone || '', email: o.dm_email || '' }] : [],
+      est_monthly_value: o.expected_mrr,
+      owner_name: repNameMap[o.created_by_rep_id] || 'Team Lead',
+      owner_rep_id: o.created_by_rep_id,
+      notes: o.gatekeeper_notes || o.lost_reason || '',
+      walkthrough_at: o.walkthrough_date,
+      cleaning_frequency: o.cleaning_frequency,
+      square_footage: o.square_footage,
+      competitor_vendor: o.competitor_vendor,
+      created_at: o.created_at,
+      updated_at: o.updated_at,
+    };
+  });
+
+  return leads;
 }
 
 /**
  * Update a lead's stage and record the change.
  */
 export async function updateLeadStage(leadId, newStage, updatedFields = {}) {
+  const stageMap = {
+    'COLD': 'knocked',
+    'CONTACTED': 'contacted',
+    'DM_IDENTIFIED': 'dm_identified',
+    'WALKTHROUGH_BOOKED': 'walkthrough_scheduled',
+    'QUOTED': 'proposal_sent',
+    'WON': 'won',
+    'LOST': 'lost',
+  };
+  const dbStage = stageMap[newStage] || newStage.toLowerCase();
+
   const { error } = await supabase
-    .from('leads')
+    .from('commercial_opportunities')
     .update({
-      stage: newStage,
-      stage_updated_at: new Date().toISOString(),
+      stage: dbStage,
       updated_at: new Date().toISOString(),
-      ...updatedFields
+      ...(updatedFields.business_name ? { company_name: updatedFields.business_name } : {}),
+      ...(updatedFields.est_monthly_value !== undefined ? { expected_mrr: updatedFields.est_monthly_value } : {}),
+      ...(updatedFields.notes !== undefined ? { gatekeeper_notes: updatedFields.notes } : {}),
+      ...(updatedFields.next_follow_up_at !== undefined ? { walkthrough_date: updatedFields.next_follow_up_at } : {}),
     })
     .eq('id', leadId);
 
@@ -634,16 +719,19 @@ export async function updateLeadStage(leadId, newStage, updatedFields = {}) {
  */
 export async function updateLeadDetails(leadId, updates) {
   const { error } = await supabase
-    .from('leads')
+    .from('commercial_opportunities')
     .update({
-      ...updates,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      ...(updates.business_name ? { company_name: updates.business_name } : {}),
+      ...(updates.est_monthly_value !== undefined ? { expected_mrr: updates.est_monthly_value } : {}),
+      ...(updates.notes !== undefined ? { gatekeeper_notes: updates.notes } : {}),
+      ...(updates.walkthrough_date !== undefined ? { walkthrough_date: updates.walkthrough_date } : {}),
     })
     .eq('id', leadId);
 
   if (error) {
     console.error('[TeamService] updateLeadDetails error:', error);
-    throw new Error('Failed to update lead details.');
+    throw new Error('Failed to update details.');
   }
 }
 
@@ -657,18 +745,30 @@ export async function getCommercialFollowUps() {
   todayEnd.setHours(23, 59, 59, 999);
 
   const { data, error } = await supabase
-    .from('leads')
+    .from('commercial_opportunities')
     .select('*')
-    .lte('next_follow_up_at', todayEnd.toISOString())
-    .neq('stage', 'WON')
-    .neq('stage', 'LOST')
-    .order('next_follow_up_at', { ascending: true })
+    .lte('walkthrough_date', todayEnd.toISOString())
+    .neq('stage', 'won')
+    .neq('stage', 'lost')
+    .order('walkthrough_date', { ascending: true })
     .limit(20);
 
   if (error || !data) {
     return [];
   }
 
-  return data;
+  return data.map(o => ({
+    id: o.id,
+    business_name: o.company_name,
+    address: o.address,
+    suite: o.unit_number,
+    lat: o.lat,
+    lng: o.lng,
+    walkthrough_at: o.walkthrough_date,
+    est_monthly_value: o.expected_mrr,
+    notes: o.gatekeeper_notes,
+    stage: o.stage,
+  }));
 }
+
 

@@ -55,11 +55,22 @@ export async function upsertServerEvent(event_id, type, payload, created_at) {
   `;
 }
 
-// Get pending events (exclude permanently failed)
+// Get pending events (retry until synced)
 export async function getPendingEvents() {
   return await sqlocal.sql`
-    SELECT * FROM events WHERE synced = 0 AND retry_count < 5 ORDER BY created_at ASC LIMIT 100
+    SELECT * FROM events WHERE synced = 0 ORDER BY created_at ASC LIMIT 100
   `;
+}
+
+// Clear all local tables on user switch to prevent cross-account data leakage
+export async function clearLocalUserData() {
+  try {
+    await sqlocal.sql`DELETE FROM events WHERE 1=1`;
+    await sqlocal.sql`DELETE FROM properties WHERE 1=1`;
+    await sqlocal.sql`DELETE FROM sync_state WHERE 1=1`;
+  } catch (e) {
+    console.warn('[DB] clearLocalUserData error:', e);
+  }
 }
 
 // Mark an event as synced
