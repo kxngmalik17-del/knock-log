@@ -6,15 +6,18 @@ import { sqlocal, upsertServerEvent, getSyncTimestamp, updateSyncTimestamp } fro
  * Strictly reads from local Event Sourcing OPFS SQLite.
  */
 
+import { modeOf, MODES } from '../config/modes';
+
 // Fetches derived history from local db
-export async function getLocalHistory() {
+export async function getLocalHistory(filterMode = null) {
   const rs = await sqlocal.sql`SELECT * FROM events ORDER BY created_at ASC`;
   
   // Fold mechanism to derive sessions
-  const sessionsMap = {}; // sessionId -> { started_at, ended_at, status, events: [], total_doors, total_sales, total_convos, ... }
+  const sessionsMap = {}; // sessionId -> { started_at, ended_at, status, mode, events: [], total_doors, total_sales, total_convos, ... }
   
   for (let row of rs) {
     const payload = JSON.parse(row.payload);
+    const itemMode = modeOf(payload);
     
     if (row.type === 'DAY_START') {
       const sId = payload.session_id;
@@ -22,6 +25,7 @@ export async function getLocalHistory() {
         sessionsMap[sId] = {
           session_id: sId,
           session_date: payload.session_date,
+          mode: itemMode,
           started_at: payload.start_time || row.created_at,
           status: 'ACTIVE',
           events: [], // Holds KNOCK & BREAK events
@@ -39,6 +43,7 @@ export async function getLocalHistory() {
         sessionsMap[sId].status = 'CLOSED';
         sessionsMap[sId].export_status = payload.export_status;
         sessionsMap[sId].export_url = payload.export_url;
+        if (payload.mode) sessionsMap[sId].mode = itemMode;
       }
     }
     else if (row.type === 'KNOCK') {
@@ -48,11 +53,16 @@ export async function getLocalHistory() {
         const item = {
           id: payload.event_id,
           type: 'KNOCK',
+          mode: itemMode,
           time: payload.timestamp,
           address: `${payload.house_number || ''} ${payload.street_name || ''}`.trim(),
+          business_name: payload.business_name || null,
+          suite: payload.suite || null,
+          target_key: payload.target_key || null,
           outcome: payload.outcome_type,
           objection: payload.objection_type || payload.convo_status,
           callback_time: payload.callback_time,
+          lead_details: payload.lead_details || null,
           notes: payload.notes,
           lat: payload.lat,
           lng: payload.lng,
@@ -63,10 +73,12 @@ export async function getLocalHistory() {
         
         // Aggregations
         sessionsMap[sId].total_doors += 1;
-        if (payload.outcome_type === 'CONVO') sessionsMap[sId].total_convos += 1;
-        if (payload.outcome_type === 'SALE') {
-            sessionsMap[sId].total_sales += 1;
-            sessionsMap[sId].total_convos += 1; // Sales generally imply convos
+        if (payload.outcome_type === 'CONVO' || payload.outcome_type === 'DECISION_MAKER' || payload.outcome_type === 'GATEKEEPER') {
+          sessionsMap[sId].total_convos += 1;
+        }
+        if (payload.outcome_type === 'SALE' || payload.outcome_type === 'WALKTHROUGH_BOOKED') {
+          sessionsMap[sId].total_sales += 1;
+          sessionsMap[sId].total_convos += 1;
         }
         
         // Push territory
@@ -99,8 +111,12 @@ export async function getLocalHistory() {
   }
 
   // Convert map to Array and sort descending by started_at
-  const sessions = Object.values(sessionsMap).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+  let sessions = Object.values(sessionsMap).sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
   
+  if (filterMode) {
+    sessions = sessions.filter(s => s.mode === filterMode);
+  }
+
   // Sort events inside each session chronologically
   sessions.forEach(s => {
     s.events.sort((a, b) => new Date(a.time) - new Date(b.time));
@@ -153,7 +169,7 @@ export async function forceSyncHistoryDeltas(repId) {
  * Queries Supabase events for DAY_START, DAY_END, KNOCK, BREAK_START, BREAK_END across all reps.
  * Folds them into structured team session records.
  */
-export async function getTeamHistory() {
+export async function getTeamHistory(filterMode = null) {
   if (!navigator.onLine) return [];
   
   try {
@@ -201,6 +217,7 @@ export async function getTeamHistory() {
 
     for (let row of serverEvents) {
       const payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+      const itemMode = modeOf(payload);
       const repId = row.rep_id;
       const repName = repNameMap[repId] || 'Teammate';
 
@@ -212,6 +229,7 @@ export async function getTeamHistory() {
             rep_id: repId,
             rep_name: repName,
             session_date: payload.session_date,
+            mode: itemMode,
             started_at: payload.start_time || row.created_at,
             status: 'ACTIVE',
             events: [],
@@ -229,6 +247,7 @@ export async function getTeamHistory() {
           sessionsMap[sId].status = 'CLOSED';
           sessionsMap[sId].export_status = payload.export_status;
           sessionsMap[sId].export_url = payload.export_url;
+          if (payload.mode) sessionsMap[sId].mode = itemMode;
         }
       }
       else if (row.type === 'KNOCK') {
@@ -241,6 +260,7 @@ export async function getTeamHistory() {
               rep_id: repId,
               rep_name: repName,
               session_date: dateOnly,
+              mode: itemMode,
               started_at: row.created_at,
               status: 'CLOSED', // assume closed if no DAY_START event was captured
               events: [],
@@ -254,11 +274,16 @@ export async function getTeamHistory() {
           const item = {
             id: row.event_id,
             type: 'KNOCK',
+            mode: itemMode,
             time: payload.timestamp || row.created_at,
             address: `${payload.house_number || ''} ${payload.street_name || ''}`.trim(),
+            business_name: payload.business_name || null,
+            suite: payload.suite || null,
+            target_key: payload.target_key || null,
             outcome: payload.outcome_type,
             objection: payload.objection_type || payload.convo_status,
             callback_time: payload.callback_time,
+            lead_details: payload.lead_details || null,
             notes: payload.notes,
             lat: payload.lat,
             lng: payload.lng,
@@ -267,8 +292,10 @@ export async function getTeamHistory() {
           
           sessionsMap[sId].events.push(item);
           sessionsMap[sId].total_doors += 1;
-          if (payload.outcome_type === 'CONVO') sessionsMap[sId].total_convos += 1;
-          if (payload.outcome_type === 'SALE') {
+          if (payload.outcome_type === 'CONVO' || payload.outcome_type === 'DECISION_MAKER' || payload.outcome_type === 'GATEKEEPER') {
+            sessionsMap[sId].total_convos += 1;
+          }
+          if (payload.outcome_type === 'SALE' || payload.outcome_type === 'WALKTHROUGH_BOOKED') {
             sessionsMap[sId].total_sales += 1;
             sessionsMap[sId].total_convos += 1;
           }
@@ -302,9 +329,13 @@ export async function getTeamHistory() {
     }
 
     // Convert map to array and sort by start time descending
-    const sessions = Object.values(sessionsMap).sort(
+    let sessions = Object.values(sessionsMap).sort(
       (a, b) => new Date(b.started_at) - new Date(a.started_at)
     );
+
+    if (filterMode) {
+      sessions = sessions.filter(s => s.mode === filterMode);
+    }
 
     // Sort events within each session
     sessions.forEach(s => {

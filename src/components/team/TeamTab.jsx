@@ -6,8 +6,12 @@ import {
   updateSaleDetails,
   deleteSaleEvent,
   calculateCommission,
+  getLeads,
+  updateLeadStage,
+  updateLeadDetails,
 } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
+import { MODES, LEAD_STAGES, LEAD_STAGE_LABELS, LEAD_STAGE_COLORS } from '../../config/modes';
 import './teamStyles.css';
 import '../mapStyles.css';
 
@@ -156,18 +160,20 @@ function CustomDatePicker({ onSelect, onClose, currentDate }) {
   );
 }
 
-export default function TeamTab({ user, repName, isActive }) {
+export default function TeamTab({ user, repName, isActive, mode = MODES.RESIDENTIAL }) {
   const [segment, setSegment] = useState('LEADERBOARD'); // 'LEADERBOARD' | 'ACTIVITY' | 'SALES'
   const [stats, setStats] = useState([]);
   const [activityData, setActivityData] = useState({ feed: [], radar: [] });
   const [allSales, setAllSales] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [stageFilter, setStageFilter] = useState('ALL');
   const [operationsSale, setOperationsSale] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [boardDate, setBoardDate] = useState('TODAY');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [salesSearch, setSalesSearch] = useState('');
-  const [editSale, setEditSale] = useState(null);   // sale object being edited
+  const [editSale, setEditSale] = useState(null);   // sale or lead object being edited
   const [editForm, setEditForm] = useState({});      // controlled form values
   const [saving, setSaving] = useState(false);
 
@@ -190,24 +196,44 @@ export default function TeamTab({ user, repName, isActive }) {
   function openEditModal(sale) {
     setEditSale(sale);
     setEditForm({
-      rep_override:    sale.details.rep_override    || sale.rep_name || '',
-      homeowner_name:  sale.details.homeowner_name  || '',
-      job_total:       sale.details.job_total       || '',
-      phone:           sale.details.phone           || '',
-      email:           sale.details.email           || '',
-      service_date:    sale.details.service_date    || '',
-      payment_method:  sale.details.payment_method  || '',
-      job_status:      sale.job_status              || 'PREBOOKED',
+      rep_override:    sale.details?.rep_override    || sale.rep_name || sale.owner_name || '',
+      homeowner_name:  sale.details?.homeowner_name  || sale.details?.contact_name || sale.business_name || '',
+      business_name:   sale.business_name            || '',
+      contact_name:    sale.details?.contact_name    || sale.contacts?.[0]?.name || '',
+      job_total:       sale.details?.job_total       || sale.est_monthly_value || '',
+      quote_amount:    sale.quote_amount             || '',
+      phone:           sale.details?.phone           || sale.contacts?.[0]?.phone || '',
+      email:           sale.details?.email           || sale.contacts?.[0]?.email || '',
+      service_date:    sale.details?.service_date    || sale.details?.walkthrough_at || sale.next_follow_up_at || '',
+      payment_method:  sale.details?.payment_method  || '',
+      stage:           sale.stage                    || 'WALKTHROUGH_BOOKED',
+      job_status:      sale.job_status              || (sale.mode === MODES.COMMERCIAL ? 'WALKTHROUGH' : 'PREBOOKED'),
+      notes:           sale.notes                    || '',
     });
   }
 
   async function handleSaveEdit() {
-    if (!editSale?.event_id) {
-      showToast('Cannot edit — no event ID found.', 'error');
-      return;
-    }
     setSaving(true);
     try {
+      if (mode === MODES.COMMERCIAL && editSale?.target_key && editSale?.stage) {
+        // Direct lead update
+        await updateLeadStage(editSale.id, editForm.stage, {
+          business_name: editForm.business_name || editSale.business_name,
+          est_monthly_value: editForm.job_total ? parseFloat(editForm.job_total) : null,
+          quote_amount: editForm.quote_amount ? parseFloat(editForm.quote_amount) : null,
+          next_follow_up_at: editForm.service_date || null,
+          notes: editForm.notes || null,
+        });
+        showToast('Lead updated!', 'success');
+        setEditSale(null);
+        loadData();
+        return;
+      }
+
+      if (!editSale?.event_id) {
+        showToast('Cannot edit — no event ID found.', 'error');
+        return;
+      }
       await updateSaleDetails(editSale.event_id, editForm);
       // Optimistically update local state
       setAllSales(prev => prev.map(s =>
@@ -215,7 +241,7 @@ export default function TeamTab({ user, repName, isActive }) {
           ? { ...s, rep_name: editForm.rep_override || s.rep_name, details: { ...s.details, ...editForm }, job_status: editForm.job_status }
           : s
       ));
-      showToast('Sale updated!', 'success');
+      showToast('Record updated!', 'success');
       setEditSale(null);
       loadData(); // Sync leaderboard
     } catch (err) {
@@ -227,7 +253,7 @@ export default function TeamTab({ user, repName, isActive }) {
 
   async function handleDeleteSale() {
     if (!editSale?.event_id) return;
-    if (!window.confirm('Are you sure you want to permanently delete this sale? This action cannot be undone.')) return;
+    if (!window.confirm('Are you sure you want to permanently delete this item? This action cannot be undone.')) return;
     
     setSaving(true);
     try {
@@ -241,7 +267,7 @@ export default function TeamTab({ user, repName, isActive }) {
       }
 
       setAllSales(prev => prev.filter(s => s.id !== editSale.id));
-      showToast('Sale permanently deleted.', 'success');
+      showToast('Item permanently deleted.', 'success');
       setEditSale(null);
       loadData(); // Sync leaderboard
     } catch (err) {
@@ -256,20 +282,27 @@ export default function TeamTab({ user, repName, isActive }) {
     if (!navigator.onLine) return;
     const dateToUse = dateOverride !== undefined ? dateOverride : boardDate;
     try {
-      const [s, a, sales] = await Promise.all([
-        getTeamStats(dateToUse),
-        getTeamActivity(),
-        getAllSales()
-      ]);
-      setStats(s);
-      setActivityData(a);
-      setAllSales(sales);
+      const promises = [
+        getTeamStats(dateToUse, mode),
+        getTeamActivity(mode),
+        getAllSales(mode)
+      ];
+      if (mode === MODES.COMMERCIAL) {
+        promises.push(getLeads());
+      }
+      const results = await Promise.all(promises);
+      setStats(results[0]);
+      setActivityData(results[1]);
+      setAllSales(results[2]);
+      if (mode === MODES.COMMERCIAL && results[3]) {
+        setLeads(results[3]);
+      }
     } catch (err) {
       console.error('[TeamTab] loadData error:', err);
     } finally {
       setLoading(false);
     }
-  }, [boardDate]);
+  }, [boardDate, mode]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -304,21 +337,34 @@ export default function TeamTab({ user, repName, isActive }) {
   }
 
   function getBoardTitle() {
-    if (boardDate === 'TODAY') return "Today's Board";
-    if (boardDate === 'YESTERDAY') return "Yesterday's Board";
-    if (boardDate === 'ALL_TIME') return 'All Time';
-    return new Date(boardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    const prefix = mode === MODES.COMMERCIAL ? 'Commercial ' : '';
+    if (boardDate === 'TODAY') return `${prefix}Today's Board`;
+    if (boardDate === 'YESTERDAY') return `${prefix}Yesterday's Board`;
+    if (boardDate === 'ALL_TIME') return `${prefix}All Time`;
+    return `${prefix}${new Date(boardDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`;
   }
 
   // Team totals
+  const isCommercial = mode === MODES.COMMERCIAL;
   const teamTotals = stats.reduce((acc, r) => {
-    acc.doors += r.doors;
-    acc.convos += r.convos;
-    acc.sales += r.sales;
-    acc.revenue += r.revenue || 0;
+    if (isCommercial) {
+      acc.targets = (acc.targets || 0) + (r.targets || 0);
+      acc.dm_reached = (acc.dm_reached || 0) + (r.dm_reached || 0);
+      acc.walkthroughs = (acc.walkthroughs || 0) + (r.walkthroughs || 0);
+    } else {
+      acc.doors = (acc.doors || 0) + (r.doors || 0);
+      acc.convos = (acc.convos || 0) + (r.convos || 0);
+      acc.sales = (acc.sales || 0) + (r.sales || 0);
+      acc.revenue = (acc.revenue || 0) + (r.revenue || 0);
+    }
     return acc;
-  }, { doors: 0, convos: 0, sales: 0, revenue: 0 });
-  teamTotals.close_rate = teamTotals.doors > 0 ? ((teamTotals.sales / teamTotals.doors) * 100).toFixed(1) : '0.0';
+  }, isCommercial ? { targets: 0, dm_reached: 0, walkthroughs: 0 } : { doors: 0, convos: 0, sales: 0, revenue: 0 });
+
+  if (isCommercial) {
+    teamTotals.reach_rate = teamTotals.targets > 0 ? ((teamTotals.dm_reached / teamTotals.targets) * 100).toFixed(1) : '0.0';
+  } else {
+    teamTotals.close_rate = teamTotals.doors > 0 ? ((teamTotals.sales / teamTotals.doors) * 100).toFixed(1) : '0.0';
+  }
 
   return (
     <div className="team-container">
@@ -417,27 +463,50 @@ export default function TeamTab({ user, repName, isActive }) {
           {/* Team Totals */}
           {!loading && stats.length > 0 && (
             <div className="board-team-totals">
-              <div className="team-total-item">
-                <span className="team-total-val">{teamTotals.doors}</span>
-                <span className="team-total-lbl">Doors</span>
-              </div>
-              <div className="team-total-item">
-                <span className="team-total-val" style={{ color: '#3b82f6' }}>{teamTotals.convos}</span>
-                <span className="team-total-lbl">Convos</span>
-              </div>
-              <div className="team-total-item">
-                <span className="team-total-val" style={{ color: '#10b981' }}>{teamTotals.sales}</span>
-                <span className="team-total-lbl">Sales</span>
-              </div>
-              <div className="team-total-item">
-                <span className="team-total-val" style={{ color: '#f59e0b' }}>{teamTotals.close_rate}%</span>
-                <span className="team-total-lbl">Close</span>
-              </div>
-              {teamTotals.revenue > 0 && (
-                <div className="team-total-item">
-                  <span className="team-total-val" style={{ color: '#a78bfa' }}>${teamTotals.revenue.toLocaleString()}</span>
-                  <span className="team-total-lbl">Revenue</span>
-                </div>
+              {isCommercial ? (
+                <>
+                  <div className="team-total-item">
+                    <span className="team-total-val">{teamTotals.targets}</span>
+                    <span className="team-total-lbl">Targets</span>
+                  </div>
+                  <div className="team-total-item">
+                    <span className="team-total-val" style={{ color: '#3b82f6' }}>{teamTotals.dm_reached}</span>
+                    <span className="team-total-lbl">DM Reached</span>
+                  </div>
+                  <div className="team-total-item">
+                    <span className="team-total-val" style={{ color: '#10b981' }}>{teamTotals.walkthroughs}</span>
+                    <span className="team-total-lbl">Walkthroughs</span>
+                  </div>
+                  <div className="team-total-item">
+                    <span className="team-total-val" style={{ color: '#f59e0b' }}>{teamTotals.reach_rate}%</span>
+                    <span className="team-total-lbl">Reach %</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="team-total-item">
+                    <span className="team-total-val">{teamTotals.doors}</span>
+                    <span className="team-total-lbl">Doors</span>
+                  </div>
+                  <div className="team-total-item">
+                    <span className="team-total-val" style={{ color: '#3b82f6' }}>{teamTotals.convos}</span>
+                    <span className="team-total-lbl">Convos</span>
+                  </div>
+                  <div className="team-total-item">
+                    <span className="team-total-val" style={{ color: '#10b981' }}>{teamTotals.sales}</span>
+                    <span className="team-total-lbl">Sales</span>
+                  </div>
+                  <div className="team-total-item">
+                    <span className="team-total-val" style={{ color: '#f59e0b' }}>{teamTotals.close_rate}%</span>
+                    <span className="team-total-lbl">Close</span>
+                  </div>
+                  {teamTotals.revenue > 0 && (
+                    <div className="team-total-item">
+                      <span className="team-total-val" style={{ color: '#a78bfa' }}>${teamTotals.revenue.toLocaleString()}</span>
+                      <span className="team-total-lbl">Revenue</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -467,7 +536,7 @@ export default function TeamTab({ user, repName, isActive }) {
               <div className="leaderboard-empty">
                 <div className="leaderboard-empty-icon">📊</div>
                 <p>No activity logged{boardDate === 'TODAY' ? ' today yet' : boardDate === 'ALL_TIME' ? ' yet' : ' on this day'}.</p>
-                <p style={{ fontSize: 12, marginTop: 4 }}>{boardDate === 'TODAY' ? 'Start knocking and watch the board fill up.' : 'Try selecting a different date range.'}</p>
+                <p style={{ fontSize: 12, marginTop: 4 }}>{boardDate === 'TODAY' ? (isCommercial ? 'Start commercial canvassing to fill up the board.' : 'Start knocking and watch the board fill up.') : 'Try selecting a different date range.'}</p>
               </div>
             ) : (
               stats.map((rep, idx) => {
@@ -487,35 +556,60 @@ export default function TeamTab({ user, repName, isActive }) {
                         {rep.rep_name}{isMe && <span style={{ marginLeft: 6, fontSize: 10, color: '#818cf8', fontWeight: 900 }}>YOU</span>}
                       </div>
                       <div className="lb-stats-row">
-                        <div className="lb-stat">
-                          <span className="lb-stat-val">{rep.doors}</span>
-                          <span className="lb-stat-lbl">Doors</span>
-                        </div>
-                        <div className="lb-stat">
-                          <span className="lb-stat-val" style={{ color: '#3b82f6' }}>{rep.convos}</span>
-                          <span className="lb-stat-lbl">Convos</span>
-                        </div>
-                        <div className="lb-stat">
-                          <span className="lb-stat-val" style={{ color: '#10b981' }}>{rep.sales}</span>
-                          <span className="lb-stat-lbl">Sales</span>
-                        </div>
-                        {rep.revenue > 0 && (
-                          <div className="lb-stat">
-                            <span className="lb-stat-val" style={{ color: '#a78bfa' }}>${rep.revenue.toLocaleString()}</span>
-                            <span className="lb-stat-lbl">Rev</span>
-                          </div>
-                        )}
-                        {rep.dph && (
-                          <div className="lb-stat">
-                            <span className="lb-stat-val" style={{ color: '#f59e0b' }}>{rep.dph}</span>
-                            <span className="lb-stat-lbl">DPH</span>
-                          </div>
+                        {isCommercial ? (
+                          <>
+                            <div className="lb-stat">
+                              <span className="lb-stat-val">{rep.targets}</span>
+                              <span className="lb-stat-lbl">Targets</span>
+                            </div>
+                            <div className="lb-stat">
+                              <span className="lb-stat-val" style={{ color: '#3b82f6' }}>{rep.dm_reached}</span>
+                              <span className="lb-stat-lbl">DM</span>
+                            </div>
+                            <div className="lb-stat">
+                              <span className="lb-stat-val" style={{ color: '#10b981' }}>{rep.walkthroughs}</span>
+                              <span className="lb-stat-lbl">Walkthrough</span>
+                            </div>
+                            {rep.dph && (
+                              <div className="lb-stat">
+                                <span className="lb-stat-val" style={{ color: '#f59e0b' }}>{rep.dph}</span>
+                                <span className="lb-stat-lbl">TPH</span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <div className="lb-stat">
+                              <span className="lb-stat-val">{rep.doors}</span>
+                              <span className="lb-stat-lbl">Doors</span>
+                            </div>
+                            <div className="lb-stat">
+                              <span className="lb-stat-val" style={{ color: '#3b82f6' }}>{rep.convos}</span>
+                              <span className="lb-stat-lbl">Convos</span>
+                            </div>
+                            <div className="lb-stat">
+                              <span className="lb-stat-val" style={{ color: '#10b981' }}>{rep.sales}</span>
+                              <span className="lb-stat-lbl">Sales</span>
+                            </div>
+                            {rep.revenue > 0 && (
+                              <div className="lb-stat">
+                                <span className="lb-stat-val" style={{ color: '#a78bfa' }}>${rep.revenue.toLocaleString()}</span>
+                                <span className="lb-stat-lbl">Rev</span>
+                              </div>
+                            )}
+                            {rep.dph && (
+                              <div className="lb-stat">
+                                <span className="lb-stat-val" style={{ color: '#f59e0b' }}>{rep.dph}</span>
+                                <span className="lb-stat-lbl">DPH</span>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
                     <div className="lb-close-rate">
-                      <CloseRing pct={rep.close_rate} />
-                      <span className="lb-close-lbl">Close</span>
+                      <CloseRing pct={isCommercial ? rep.reach_rate : rep.close_rate} />
+                      <span className="lb-close-lbl">{isCommercial ? 'Reach' : 'Close'}</span>
                     </div>
                   </div>
                 );
@@ -571,27 +665,32 @@ export default function TeamTab({ user, repName, isActive }) {
               </div>
             ) : (
               activityData.feed.map((event) => {
+                const isCommercialEvent = event.mode === MODES.COMMERCIAL;
+                const isWalkthrough = event.status === 'WALKTHROUGH_BOOKED';
                 const isSale = event.status === 'SALE';
-                const isCallback = event.status === 'CALLBACK';
-                const color = isSale ? STATUS_COLORS.SALE : isCallback ? STATUS_COLORS.CALLBACK : STATUS_COLORS.CONVO;
+                const isCallback = event.status === 'CALLBACK' || event.status === 'NOT_NOW';
+                const color = isWalkthrough ? STATUS_COLORS.WALKTHROUGH_BOOKED : isSale ? STATUS_COLORS.SALE : isCallback ? STATUS_COLORS.CALLBACK : STATUS_COLORS.CONVO;
                 const sd = event.sale_details;
                 return (
                   <div className="feed-card" key={event.id}>
                     <div className="feed-icon" style={{ background: `${color}1A`, color: color }}>
-                      {isSale ? '💰' : isCallback ? '📅' : '💬'}
+                      {isWalkthrough ? '📋' : isSale ? '💰' : isCallback ? '📅' : '💬'}
                     </div>
                     <div className="feed-content">
                       <div className="feed-text">
-                        {isSale && sd ? (
+                        {isWalkthrough && sd ? (
+                          <><strong>{event.rep_name}</strong> booked walkthrough for <span style={{ color: '#10b981', fontWeight: 800 }}>{event.business_name || sd.contact_name || 'Business'}</span></>
+                        ) : isSale && sd ? (
                           <><strong>{event.rep_name}</strong> closed <span style={{ color: '#10b981', fontWeight: 800 }}>{sd.homeowner_name}</span>{sd.job_total ? <span style={{ color: '#a78bfa', fontWeight: 700 }}> · {sd.job_total}</span> : ''}{sd.payment_method ? <span style={{ color: '#8888a0', fontWeight: 500 }}> ({sd.payment_method})</span> : ''}</>
                         ) : (
-                          <><strong>{event.rep_name}</strong> got a <span style={{ color, fontWeight: 800 }}>{event.status}</span></>
+                          <><strong>{event.rep_name}</strong> reached <span style={{ color, fontWeight: 800 }}>{event.status.replace(/_/g, ' ')}</span></>
                         )}
                       </div>
                       <div className="feed-street">
-                        {event.street_name}
-                        {isSale && sd?.phone && <span style={{ marginLeft: 8, color: '#818cf8', fontSize: 11 }}>{sd.phone}</span>}
+                        {event.business_name ? `${event.business_name} · ` : ''}{event.suite ? `Unit ${event.suite}, ` : ''}{event.street_name || event.address}
+                        {(isSale || isWalkthrough) && sd?.phone && <span style={{ marginLeft: 8, color: '#818cf8', fontSize: 11 }}>{sd.phone}</span>}
                         {isSale && sd?.service_date && <span style={{ marginLeft: 8, color: '#f59e0b', fontSize: 11 }}>{new Date(sd.service_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                        {isWalkthrough && sd?.walkthrough_at && <span style={{ marginLeft: 8, color: '#10b981', fontSize: 11 }}>Walkthrough: {new Date(sd.walkthrough_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
                       </div>
                     </div>
                     <div className="feed-time">{getTimeAgo(event.timestamp)}</div>
@@ -608,24 +707,60 @@ export default function TeamTab({ user, repName, isActive }) {
          ════════════════════════════════════ */}
       {segment === 'SALES' && (
         <div className="team-segment-content">
-          {/* Header: title + total revenue */}
+          {/* Header: title + total revenue or lead counts */}
           <div className="team-section-header">
-            <h2 className="team-section-title">Sales Book</h2>
+            <h2 className="team-section-title">{isCommercial ? 'Commercial Pipeline' : 'Sales Book'}</h2>
             <div style={{ display: 'flex', gap: 8 }}>
-              <div className="team-total-revenue-pill" title="Total Revenue">
-                 ${allSales.reduce((sum, s) => {
-                   const val = parseFloat(String(s.details?.job_total || '0').replace(/[^0-9.]/g, ''));
-                   return sum + (isNaN(val) ? 0 : val);
-                 }, 0).toLocaleString()}
-              </div>
-              <div className="team-total-revenue-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }} title="Your Commission">
-                 ${allSales.reduce((sum, s) => {
-                   if (s.rep_id !== user?.id) return sum;
-                   return sum + calculateCommission(s.details?.job_total);
-                 }, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </div>
+              {!isCommercial && (
+                <>
+                  <div className="team-total-revenue-pill" title="Total Revenue">
+                     ${allSales.reduce((sum, s) => {
+                       const val = parseFloat(String(s.details?.job_total || '0').replace(/[^0-9.]/g, ''));
+                       return sum + (isNaN(val) ? 0 : val);
+                     }, 0).toLocaleString()}
+                  </div>
+                  <div className="team-total-revenue-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }} title="Your Commission">
+                     ${allSales.reduce((sum, s) => {
+                       if (s.rep_id !== user?.id) return sum;
+                       return sum + calculateCommission(s.details?.job_total);
+                     }, 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </div>
+                </>
+              )}
+              {isCommercial && (
+                <div className="team-total-revenue-pill" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+                  {leads.length > 0 ? `${leads.length} Leads` : `${allSales.length} Walkthroughs`}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Commercial Stage filter tabs */}
+          {isCommercial && leads.length > 0 && (
+            <div className="board-quick-tabs" style={{ marginBottom: 12, overflowX: 'auto', flexWrap: 'nowrap' }}>
+              <div className="board-quick-tab-group" style={{ overflowX: 'auto', maxWidth: '100%' }}>
+                <button
+                  className={`board-quick-tab ${stageFilter === 'ALL' ? 'active' : ''}`}
+                  onClick={() => setStageFilter('ALL')}
+                >
+                  All ({leads.length})
+                </button>
+                {LEAD_STAGES.map(st => {
+                  const count = leads.filter(l => l.stage === st).length;
+                  if (count === 0 && st !== 'WALKTHROUGH_BOOKED' && st !== 'DM_IDENTIFIED') return null;
+                  return (
+                    <button
+                      key={st}
+                      className={`board-quick-tab ${stageFilter === st ? 'active' : ''}`}
+                      onClick={() => setStageFilter(st)}
+                    >
+                      {LEAD_STAGE_LABELS[st] || st} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Search bar */}
           <div className="sales-search-wrap">
@@ -636,7 +771,7 @@ export default function TeamTab({ user, repName, isActive }) {
               id="sales-search-input"
               className="sales-search-input"
               type="text"
-              placeholder="Search homeowner, rep, address…"
+              placeholder={isCommercial ? "Search business, contact, rep, address…" : "Search homeowner, rep, address…"}
               value={salesSearch}
               onChange={e => setSalesSearch(e.target.value)}
             />
@@ -652,9 +787,132 @@ export default function TeamTab({ user, repName, isActive }) {
           <div className="sales-book-list">
             {(() => {
               const q = salesSearch.toLowerCase().trim();
+
+              // In Commercial mode, prefer persistent leads table if available
+              if (isCommercial && leads.length > 0) {
+                let filteredLeads = leads;
+                if (stageFilter !== 'ALL') {
+                  filteredLeads = filteredLeads.filter(l => l.stage === stageFilter);
+                }
+                if (q) {
+                  filteredLeads = filteredLeads.filter(l =>
+                    (l.business_name || '').toLowerCase().includes(q) ||
+                    (l.owner_name || '').toLowerCase().includes(q) ||
+                    (l.address || '').toLowerCase().includes(q) ||
+                    (l.notes || '').toLowerCase().includes(q) ||
+                    (l.contacts && JSON.stringify(l.contacts).toLowerCase().includes(q))
+                  );
+                }
+
+                if (filteredLeads.length === 0) {
+                  return (
+                    <div className="activity-empty">
+                      {q ? `No leads matching "${q}"` : 'No leads in this stage.'}
+                    </div>
+                  );
+                }
+
+                return filteredLeads.map((lead) => {
+                  const stageColor = LEAD_STAGE_COLORS[lead.stage] || '#3b82f6';
+                  return (
+                    <div
+                      className="sale-book-card"
+                      key={lead.id}
+                      onTouchStart={() => handleCardPressStart(lead)}
+                      onTouchEnd={handleCardPressEnd}
+                      onTouchMove={handleCardPressEnd}
+                      onMouseDown={() => handleCardPressStart(lead)}
+                      onMouseUp={handleCardPressEnd}
+                      onMouseLeave={handleCardPressEnd}
+                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      <div className="sale-book-header">
+                        <div className="sale-book-main">
+                          <div className="sale-homeowner">
+                            {lead.business_name}
+                            {lead.contacts?.[0]?.name && (
+                              <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginLeft: 6 }}>
+                                ({lead.contacts[0].name})
+                              </span>
+                            )}
+                          </div>
+                          <div className="sale-address">
+                            <span
+                              className="sale-status-badge"
+                              style={{ background: `${stageColor}25`, color: stageColor, borderColor: `${stageColor}40` }}
+                            >
+                              {LEAD_STAGE_LABELS[lead.stage] || lead.stage}
+                            </span>
+                            <span className="sale-address-text">{lead.suite ? `Unit ${lead.suite}, ` : ''}{lead.address}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {lead.est_monthly_value && (
+                            <div className="sale-amount-badge" style={{ color: '#10b981' }}>
+                              ${Number(lead.est_monthly_value).toLocaleString()}/mo
+                            </div>
+                          )}
+                          <button
+                            className="sale-edit-btn"
+                            id={`lead-edit-${lead.id}`}
+                            onClick={e => { e.stopPropagation(); openEditModal(lead); }}
+                            onTouchStart={e => e.stopPropagation()}
+                            onMouseDown={e => e.stopPropagation()}
+                            title="Edit lead"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="sale-details-grid">
+                        <div className="sale-detail-item">
+                          <span className="sale-detail-lbl">Rep</span>
+                          <span className="sale-detail-val">{lead.owner_name}</span>
+                        </div>
+                        <div className="sale-detail-item">
+                          <span className="sale-detail-lbl">Updated</span>
+                          <span className="sale-detail-val">{new Date(lead.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                        {lead.next_follow_up_at && (
+                          <div className="sale-detail-item">
+                            <span className="sale-detail-lbl">Next Follow-Up</span>
+                            <span className="sale-detail-val" style={{ color: '#10b981' }}>
+                              {new Date(lead.next_follow_up_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        )}
+                        {lead.current_vendor && (
+                          <div className="sale-detail-item">
+                            <span className="sale-detail-lbl">Vendor</span>
+                            <span className="sale-detail-val" style={{ color: '#f59e0b' }}>{lead.current_vendor}</span>
+                          </div>
+                        )}
+                        {lead.frequency && (
+                          <div className="sale-detail-item">
+                            <span className="sale-detail-lbl">Freq</span>
+                            <span className="sale-detail-val">{lead.frequency}</span>
+                          </div>
+                        )}
+                      </div>
+                      {lead.notes && (
+                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: 6 }}>
+                          "{lead.notes}"
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              }
+
+              // Fallback to allSales (events-based walkthroughs)
               const filtered = q
                 ? allSales.filter(s =>
-                    (s.details.homeowner_name || '').toLowerCase().includes(q) ||
+                    (s.business_name || '').toLowerCase().includes(q) ||
+                    (s.details.contact_name || s.details.homeowner_name || '').toLowerCase().includes(q) ||
                     (s.rep_name || '').toLowerCase().includes(q) ||
                     (s.address || '').toLowerCase().includes(q) ||
                     (s.details.phone || '').includes(q) ||
@@ -665,13 +923,14 @@ export default function TeamTab({ user, repName, isActive }) {
               if (filtered.length === 0) {
                 return (
                   <div className="activity-empty">
-                    {q ? `No sales matching "${q}"` : 'No sales history found.'}
+                    {q ? `No items matching "${q}"` : (isCommercial ? 'No commercial walkthroughs or leads recorded yet.' : 'No sales history found.')}
                   </div>
                 );
               }
 
               return filtered.map((sale) => {
                 const isCancelled = sale.job_status === 'CANCELLED';
+                const isCommercialSale = sale.mode === MODES.COMMERCIAL;
                 return (
                 <div
                   className={`sale-book-card ${isCancelled ? 'sale-cancelled' : ''}`}
@@ -686,18 +945,24 @@ export default function TeamTab({ user, repName, isActive }) {
                 >
                   <div className="sale-book-header">
                     <div className="sale-book-main">
-                      <div className="sale-homeowner">{sale.details.homeowner_name || <span style={{ color: '#55556a', fontStyle: 'italic' }}>Anonymous Customer</span>}</div>
+                      <div className="sale-homeowner">
+                        {sale.business_name
+                          ? `${sale.business_name} (${sale.details.contact_name || 'Contact'})`
+                          : (sale.details.homeowner_name || sale.details.contact_name || <span style={{ color: '#55556a', fontStyle: 'italic' }}>Anonymous</span>)}
+                      </div>
                       <div className="sale-address">
                         <span className={`sale-status-badge status-${(sale.job_status || 'PREBOOKED').toLowerCase()}`}>
-                          {sale.job_status || 'PREBOOKED'}
+                          {sale.job_status || (isCommercialSale ? 'WALKTHROUGH' : 'PREBOOKED')}
                         </span>
-                        <span className="sale-address-text">{sale.address}</span>
+                        <span className="sale-address-text">{sale.suite ? `Unit ${sale.suite}, ` : ''}{sale.address}</span>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="sale-amount-badge">
-                        {sale.details.job_total ? `$${sale.details.job_total}` : <span style={{ color: '#55556a' }}>—</span>}
-                      </div>
+                      {!isCommercialSale && (
+                        <div className="sale-amount-badge">
+                          {sale.details.job_total ? `$${sale.details.job_total}` : <span style={{ color: '#55556a' }}>—</span>}
+                        </div>
+                      )}
                       <button
                         className="sale-edit-btn"
                         id={`sale-edit-${sale.id}`}
@@ -735,6 +1000,12 @@ export default function TeamTab({ user, repName, isActive }) {
                         <span className="sale-detail-val" style={{ color: '#818cf8', fontSize: '10px' }}>{sale.details.email}</span>
                       </div>
                     )}
+                    {sale.details.walkthrough_at && (
+                      <div className="sale-detail-item">
+                        <span className="sale-detail-lbl">Walkthrough</span>
+                        <span className="sale-detail-val" style={{ color: '#10b981' }}>{new Date(sale.details.walkthrough_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    )}
                     {sale.details.service_date && (
                       <div className="sale-detail-item">
                         <span className="sale-detail-lbl">Service</span>
@@ -770,97 +1041,166 @@ export default function TeamTab({ user, repName, isActive }) {
               </button>
             </div>
 
-            <div className="edit-form-grid">
-              <div className="edit-form-field">
-                <label className="edit-form-label">Job Status</label>
-                <select
-                  className="edit-form-input edit-form-select"
-                  style={{ fontWeight: 800, color: editForm.job_status === 'COMPLETED' ? '#10b981' : editForm.job_status === 'CANCELLED' ? '#ef4444' : '#f59e0b' }}
-                  value={editForm.job_status}
-                  onChange={e => setEditForm(f => ({ ...f, job_status: e.target.value }))}
-                >
-                  <option value="PREBOOKED">Prebooked</option>
-                  <option value="COMPLETED">Completed</option>
-                  <option value="CANCELLED">Cancelled</option>
-                </select>
+            {isCommercial && editSale?.stage ? (
+              <div className="edit-form-grid">
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Lifecycle Stage</label>
+                  <select
+                    className="edit-form-input edit-form-select"
+                    style={{ fontWeight: 800, color: LEAD_STAGE_COLORS[editForm.stage] || '#3b82f6' }}
+                    value={editForm.stage}
+                    onChange={e => setEditForm(f => ({ ...f, stage: e.target.value }))}
+                  >
+                    {Object.entries(LEAD_STAGE_LABELS).map(([k, label]) => (
+                      <option key={k} value={k}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Business Name</label>
+                  <input
+                    className="edit-form-input"
+                    type="text"
+                    placeholder="Business Name"
+                    value={editForm.business_name}
+                    onChange={e => setEditForm(f => ({ ...f, business_name: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Est. Monthly Value ($/mo)</label>
+                  <input
+                    className="edit-form-input"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="e.g. 1500"
+                    value={editForm.job_total}
+                    onChange={e => setEditForm(f => ({ ...f, job_total: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Quote Amount ($/mo)</label>
+                  <input
+                    className="edit-form-input"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="e.g. 1250"
+                    value={editForm.quote_amount}
+                    onChange={e => setEditForm(f => ({ ...f, quote_amount: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Next Follow-Up</label>
+                  <input
+                    className="edit-form-input"
+                    type="datetime-local"
+                    value={editForm.service_date}
+                    onChange={e => setEditForm(f => ({ ...f, service_date: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field" style={{ gridColumn: 'span 2' }}>
+                  <label className="edit-form-label">Notes</label>
+                  <textarea
+                    className="edit-form-input"
+                    rows="3"
+                    placeholder="Decision maker preferences, vendor notes..."
+                    value={editForm.notes}
+                    onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                  />
+                </div>
               </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Closed By (Rep)</label>
-                <input
-                  className="edit-form-input"
-                  type="text"
-                  placeholder="Rep name"
-                  value={editForm.rep_override}
-                  onChange={e => setEditForm(f => ({ ...f, rep_override: e.target.value }))}
-                />
+            ) : (
+              <div className="edit-form-grid">
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Job Status</label>
+                  <select
+                    className="edit-form-input edit-form-select"
+                    style={{ fontWeight: 800, color: editForm.job_status === 'COMPLETED' ? '#10b981' : editForm.job_status === 'CANCELLED' ? '#ef4444' : '#f59e0b' }}
+                    value={editForm.job_status}
+                    onChange={e => setEditForm(f => ({ ...f, job_status: e.target.value }))}
+                  >
+                    <option value="PREBOOKED">Prebooked</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Closed By (Rep)</label>
+                  <input
+                    className="edit-form-input"
+                    type="text"
+                    placeholder="Rep name"
+                    value={editForm.rep_override}
+                    onChange={e => setEditForm(f => ({ ...f, rep_override: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Homeowner Name</label>
+                  <input
+                    className="edit-form-input"
+                    type="text"
+                    placeholder="Full name"
+                    value={editForm.homeowner_name}
+                    onChange={e => setEditForm(f => ({ ...f, homeowner_name: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Deal Size ($)</label>
+                  <input
+                    className="edit-form-input"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="e.g. 350"
+                    value={editForm.job_total}
+                    onChange={e => setEditForm(f => ({ ...f, job_total: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Phone</label>
+                  <input
+                    className="edit-form-input"
+                    type="tel"
+                    placeholder="(555) 000-0000"
+                    value={editForm.phone}
+                    onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Email</label>
+                  <input
+                    className="edit-form-input"
+                    type="email"
+                    placeholder="customer@email.com"
+                    value={editForm.email}
+                    onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Service Date</label>
+                  <input
+                    className="edit-form-input"
+                    type="date"
+                    value={editForm.service_date}
+                    onChange={e => setEditForm(f => ({ ...f, service_date: e.target.value }))}
+                  />
+                </div>
+                <div className="edit-form-field">
+                  <label className="edit-form-label">Payment Method</label>
+                  <select
+                    className="edit-form-input edit-form-select"
+                    value={editForm.payment_method}
+                    onChange={e => setEditForm(f => ({ ...f, payment_method: e.target.value }))}
+                  >
+                    <option value="">Select…</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Check">Check</option>
+                    <option value="Card">Card</option>
+                    <option value="Venmo">Venmo</option>
+                    <option value="Zelle">Zelle</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
               </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Homeowner Name</label>
-                <input
-                  className="edit-form-input"
-                  type="text"
-                  placeholder="Full name"
-                  value={editForm.homeowner_name}
-                  onChange={e => setEditForm(f => ({ ...f, homeowner_name: e.target.value }))}
-                />
-              </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Deal Size ($)</label>
-                <input
-                  className="edit-form-input"
-                  type="text"
-                  inputMode="decimal"
-                  placeholder="e.g. 350"
-                  value={editForm.job_total}
-                  onChange={e => setEditForm(f => ({ ...f, job_total: e.target.value }))}
-                />
-              </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Phone</label>
-                <input
-                  className="edit-form-input"
-                  type="tel"
-                  placeholder="(555) 000-0000"
-                  value={editForm.phone}
-                  onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
-                />
-              </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Email</label>
-                <input
-                  className="edit-form-input"
-                  type="email"
-                  placeholder="customer@email.com"
-                  value={editForm.email}
-                  onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
-                />
-              </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Service Date</label>
-                <input
-                  className="edit-form-input"
-                  type="date"
-                  value={editForm.service_date}
-                  onChange={e => setEditForm(f => ({ ...f, service_date: e.target.value }))}
-                />
-              </div>
-              <div className="edit-form-field">
-                <label className="edit-form-label">Payment Method</label>
-                <select
-                  className="edit-form-input edit-form-select"
-                  value={editForm.payment_method}
-                  onChange={e => setEditForm(f => ({ ...f, payment_method: e.target.value }))}
-                >
-                  <option value="">Select…</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Check">Check</option>
-                  <option value="Card">Card</option>
-                  <option value="Venmo">Venmo</option>
-                  <option value="Zelle">Zelle</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
+            )}
 
             <div className="edit-form-actions" style={{ justifyContent: 'space-between' }}>
               <button className="edit-cancel-btn" style={{ background: '#ef444420', color: '#ef4444', borderColor: 'transparent' }} onClick={handleDeleteSale} disabled={saving}>

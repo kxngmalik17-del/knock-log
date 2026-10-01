@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { modeOf, MODES, resolveStatus } from '../config/modes';
 
 /**
  * TEAM SERVICE
@@ -8,8 +9,10 @@ import { supabase } from './supabase';
 /**
  * Fetch today's knock events from ALL reps on the team (excluding the current user).
  * Returns GeoJSON suitable for the ghost pin layer.
+ * @param {string} currentUserId
+ * @param {string|null} filterMode - 'RESIDENTIAL' | 'COMMERCIAL' | null (all)
  */
-export async function getTeamGeoJSON(currentUserId) {
+export async function getTeamGeoJSON(currentUserId, filterMode = null) {
   const todayStr = new Date().toISOString().split('T')[0];
 
   const { data: knockEvents, error } = await supabase
@@ -31,14 +34,22 @@ export async function getTeamGeoJSON(currentUserId) {
   const propMap = {};
   for (const row of knockEvents) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const mode = modeOf(p);
+    if (filterMode !== null && mode !== filterMode) continue;
+
     const address = `${p.house_number || ''} ${p.street_name || ''}`.trim();
     if (!address || !p.lat || !p.lng) continue;
 
-    const key = address.toLowerCase();
+    const key = (mode === MODES.COMMERCIAL && p.target_key)
+      ? 'comm_' + p.target_key
+      : address.toLowerCase();
+
     let resolvedStatus = resolveStatus(p);
 
     propMap[key] = {
       address, lat: p.lat, lng: p.lng, last_status: resolvedStatus,
+      mode,
+      business_name: p.business_name || null,
       last_knocked_at: p.timestamp || row.created_at,
       rep_name: repNameMap[row.rep_id] || 'Teammate',
     };
@@ -51,6 +62,7 @@ export async function getTeamGeoJSON(currentUserId) {
       geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
       properties: {
         address: p.address, last_status: p.last_status,
+        mode: p.mode, business_name: p.business_name,
         last_knocked_at: p.last_knocked_at, rep_name: p.rep_name, is_ghost: 1,
       }
     }))
@@ -58,22 +70,54 @@ export async function getTeamGeoJSON(currentUserId) {
 }
 
 
+
 /**
  * Fetch ALL-TIME team coverage across every rep.
  * Reads from the team_property_coverage view — latest status per unique address.
  * Returns GeoJSON for the Team Coverage Map.
+ * @param {string|null} filterMode - 'RESIDENTIAL' | 'COMMERCIAL' | null
  */
-export async function getTeamCoverageGeoJSON() {
+export async function getTeamCoverageGeoJSON(filterMode = null) {
+  // If COMMERCIAL, fetch directly from leads table if available for accurate pipeline stage and target keys
+  if (filterMode === MODES.COMMERCIAL) {
+    const { data: leadsData, error: leadsErr } = await supabase
+      .from('leads')
+      .select('*');
+
+    if (!leadsErr && leadsData && leadsData.length > 0) {
+      const features = leadsData
+        .filter(l => l.lat && l.lng)
+        .map(l => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [l.lng, l.lat] },
+          properties: {
+            address: l.address || '',
+            business_name: l.business_name || '',
+            suite: l.suite || '',
+            last_status: l.stage || 'COLD',
+            stage: l.stage || 'COLD',
+            last_knocked_at: l.updated_at || l.created_at,
+            mode: MODES.COMMERCIAL,
+          }
+        }));
+
+      if (features.length > 0) {
+        return { type: 'FeatureCollection', features };
+      }
+    }
+  }
+
   const allRows = [];
   const PAGE_SIZE = 1000;
   let from = 0;
 
   // Supabase caps responses at 1,000 rows by default — paginate until exhausted
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('team_property_coverage')
-      .select('house_number, street_name, last_knocked_at, outcome_type, convo_status, objection_type, lat, lng')
-      .range(from, from + PAGE_SIZE - 1);
+      .select('house_number, street_name, last_knocked_at, outcome_type, convo_status, objection_type, lat, lng');
+
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
 
     if (error) {
       console.error('[TeamService] Failed to fetch team coverage:', error);
@@ -86,15 +130,24 @@ export async function getTeamCoverageGeoJSON() {
     from += PAGE_SIZE;
   }
 
+  // Filter by mode if requested (team_property_coverage is residential unless commercial outcome types present)
+  const filteredRows = allRows.filter(row => {
+    if (!filterMode) return true;
+    const isCommercial = ['GATEKEEPER', 'DECISION_MAKER', 'WALKTHROUGH_BOOKED'].includes(row.outcome_type);
+    const rowMode = isCommercial ? MODES.COMMERCIAL : MODES.RESIDENTIAL;
+    return rowMode === filterMode;
+  });
+
   return {
     type: 'FeatureCollection',
-    features: allRows.map(row => ({
+    features: filteredRows.map(row => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [row.lng, row.lat] },
       properties: {
         address: `${row.house_number || ''} ${row.street_name || ''}`.trim(),
         last_status: resolveStatus({ outcome_type: row.outcome_type, convo_status: row.convo_status, objection_type: row.objection_type }),
         last_knocked_at: row.last_knocked_at,
+        mode: filterMode || MODES.RESIDENTIAL,
       }
     }))
   };
@@ -104,9 +157,12 @@ export async function getTeamCoverageGeoJSON() {
 /**
  * Fetch leaderboard stats for a given date (or week, yesterday, all-time).
  * @param {string} dateStr - 'TODAY' | 'YESTERDAY' | 'ALL_TIME' | 'WEEK' | 'YYYY-MM-DD'
- * Returns array of { rep_id, rep_name, doors, convos, sales, close_rate, dph }, sorted by sales.
+ * @param {string} filterMode - 'RESIDENTIAL' | 'COMMERCIAL' (defaults to RESIDENTIAL)
+ * Returns array sorted by primary metric.
+ *   Residential: { rep_id, rep_name, doors, convos, sales, close_rate, dph, revenue }
+ *   Commercial:  { rep_id, rep_name, targets, dm_reached, walkthroughs, reach_rate, dph }
  */
-export async function getTeamStats(dateStr = 'TODAY') {
+export async function getTeamStats(dateStr = 'TODAY', filterMode = MODES.RESIDENTIAL) {
   let startISO, endISO, allTime = false;
 
   if (dateStr === 'ALL_TIME') {
@@ -210,14 +266,22 @@ export async function getTeamStats(dateStr = 'TODAY') {
 
   for (const row of knockResData) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const knockMode = modeOf(p);
+    // Strict mode filter: skip events that don't belong to the requested mode
+    if (knockMode !== filterMode) continue;
+
     const rid = row.rep_id;
-    const address = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
-    if (!address) continue;
+    // Stable target key for deduplication
+    const targetKey = (knockMode === MODES.COMMERCIAL && p.target_key)
+      ? p.target_key
+      : `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
+    if (!targetKey) continue;
 
     const resolvedStatus = resolveStatus(p);
 
+    // Rep override for residential sales
     let eventRid = rid;
-    if (resolvedStatus === 'SALE' && p.sale_details?.rep_override) {
+    if (knockMode === MODES.RESIDENTIAL && resolvedStatus === 'SALE' && p.sale_details?.rep_override) {
       const overrideStr = p.sale_details.rep_override.trim();
       if (overrideStr) {
         const matchId = nameToIdMap[overrideStr.toLowerCase()];
@@ -231,29 +295,56 @@ export async function getTeamStats(dateStr = 'TODAY') {
     }
 
     if (!repData[eventRid]) {
-      repData[eventRid] = { rep_id: eventRid, rep_name: repNameMap[eventRid] || 'Rep', doors: 0, convos: 0, sales: 0 };
+      if (filterMode === MODES.COMMERCIAL) {
+        repData[eventRid] = { rep_id: eventRid, rep_name: repNameMap[eventRid] || 'Rep', targets: 0, dm_reached: 0, walkthroughs: 0 };
+      } else {
+        repData[eventRid] = { rep_id: eventRid, rep_name: repNameMap[eventRid] || 'Rep', doors: 0, convos: 0, sales: 0 };
+      }
       seenAddresses[eventRid] = new Set();
     }
 
-    if (!seenAddresses[eventRid].has(address)) {
-      seenAddresses[eventRid].add(address);
-      repData[eventRid].doors++;
-    }
-
-    if (resolvedStatus === 'SALE') {
-      if (p.sale_details?.job_status === 'CANCELLED') {
-        repData[eventRid].convos++;
-      } else {
-        repData[eventRid].sales++;
-        // Accumulate revenue from sale_details if present
-        if (p.sale_details?.job_total) {
-          const num = parseFloat(String(p.sale_details.job_total).replace(/[^0-9.]/g, ''));
-          if (!isNaN(num)) repData[eventRid].revenue = (repData[eventRid].revenue || 0) + num;
-        }
+    if (filterMode === MODES.COMMERCIAL) {
+      // Count unique business targets
+      if (!seenAddresses[eventRid].has(targetKey)) {
+        seenAddresses[eventRid].add(targetKey);
+        repData[eventRid].targets++;
       }
-    } else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) {
-      repData[eventRid].convos++;
+      if (resolvedStatus === 'WALKTHROUGH_BOOKED') {
+        repData[eventRid].walkthroughs++;
+      } else if (['DECISION_MAKER', 'DM_INTERESTED', 'HAS_VENDOR', 'LANDLORD', 'NOT_NOW', 'NOT_INTERESTED', 'NO_SOLICITING'].includes(resolvedStatus)) {
+        repData[eventRid].dm_reached++;
+      }
+    } else {
+      // Residential: count unique doors
+      if (!seenAddresses[eventRid].has(targetKey)) {
+        seenAddresses[eventRid].add(targetKey);
+        repData[eventRid].doors++;
+      }
+      if (resolvedStatus === 'SALE') {
+        if (p.sale_details?.job_status === 'CANCELLED') {
+          repData[eventRid].convos++;
+        } else {
+          repData[eventRid].sales++;
+          if (p.sale_details?.job_total) {
+            const num = parseFloat(String(p.sale_details.job_total).replace(/[^0-9.]/g, ''));
+            if (!isNaN(num)) repData[eventRid].revenue = (repData[eventRid].revenue || 0) + num;
+          }
+        }
+      } else if (['CONVO', 'CALLBACK', 'THINKING'].includes(resolvedStatus)) {
+        repData[eventRid].convos++;
+      }
     }
+  }
+
+  if (filterMode === MODES.COMMERCIAL) {
+    return Object.values(repData)
+      .map(r => ({
+        ...r,
+        reach_rate: r.targets > 0 ? ((r.dm_reached / r.targets) * 100).toFixed(1) : '0.0',
+        walkthrough_rate: r.targets > 0 ? ((r.walkthroughs / r.targets) * 100).toFixed(1) : '0.0',
+        dph: sessionHours[r.rep_id] ? (r.targets / sessionHours[r.rep_id]).toFixed(1) : null,
+      }))
+      .sort((a, b) => b.walkthroughs - a.walkthroughs || b.dm_reached - a.dm_reached);
   }
 
   return Object.values(repData)
@@ -270,8 +361,9 @@ export async function getTeamStats(dateStr = 'TODAY') {
 /**
  * Fetch today's team activity for the Live Feed and Team Radar.
  * Returns { feed: [], radar: [] }
+ * @param {string|null} filterMode - 'RESIDENTIAL' | 'COMMERCIAL' | null
  */
-export async function getTeamActivity() {
+export async function getTeamActivity(filterMode = null) {
   const todayStr = new Date().toISOString().split('T')[0];
 
   const events = [];
@@ -304,6 +396,9 @@ export async function getTeamActivity() {
 
   for (const row of events) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const itemMode = modeOf(p);
+    if (filterMode && itemMode !== filterMode) continue;
+
     const rid = row.rep_id;
     const repName = repNameMap[rid] || 'Teammate';
     const timestamp = p.timestamp || row.created_at;
@@ -313,17 +408,26 @@ export async function getTeamActivity() {
     const status = resolveStatus(p);
 
     // 1. Build Live Feed (Notable events only)
-    if (['SALE', 'CONVO', 'CALLBACK'].includes(status)) {
-      const sd = p.sale_details || null;
+    const isCommercial = itemMode === MODES.COMMERCIAL;
+    const isNotable = isCommercial
+      ? ['WALKTHROUGH_BOOKED', 'GATEKEEPER', 'DECISION_MAKER', 'DM_INTERESTED'].includes(status)
+      : ['SALE', 'CONVO', 'CALLBACK'].includes(status);
+
+    if (isNotable) {
+      const sd = p.sale_details || p.lead_details || null;
       feed.push({
         id: row.created_at + rid,
         rep_id: rid,
         rep_name: repName,
         status: status,
-        job_status: sd?.job_status || 'PREBOOKED',
+        mode: itemMode,
+        job_status: sd?.job_status || (status === 'WALKTHROUGH_BOOKED' ? 'WALKTHROUGH' : 'PREBOOKED'),
         address: `${p.house_number || ''} ${p.street_name || ''}`.trim(),
+        business_name: p.business_name || null,
+        suite: p.suite || null,
         timestamp: timestamp,
         sale_details: sd,
+        lead_details: p.lead_details || null,
       });
     }
 
@@ -333,6 +437,7 @@ export async function getTeamActivity() {
         rep_id: rid,
         rep_name: repName,
         status: status,
+        mode: itemMode,
         street_name: streetName,
         timestamp: timestamp
       };
@@ -347,10 +452,11 @@ export async function getTeamActivity() {
 
 
 /**
- * Fetch ALL successful sales from history across ALL reps.
+ * Fetch ALL successful sales / won leads from history across ALL reps.
  * This is used for the persistent "Sales Book" / Customer List.
+ * @param {string|null} filterMode - 'RESIDENTIAL' | 'COMMERCIAL' | null
  */
-export async function getAllSales() {
+export async function getAllSales(filterMode = null) {
   const events = [];
   let from = 0;
   const PAGE_SIZE = 1000;
@@ -378,18 +484,25 @@ export async function getAllSales() {
   const sales = [];
   for (const row of events) {
     const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const itemMode = modeOf(p);
+    if (filterMode && itemMode !== filterMode) continue;
+
     const status = resolveStatus(p);
 
-    if (status === 'SALE') {
+    if (status === 'SALE' || (itemMode === MODES.COMMERCIAL && status === 'WALKTHROUGH_BOOKED')) {
       sales.push({
         id: row.created_at + row.rep_id,
         event_id: row.event_id,
         rep_id: row.rep_id,
         rep_name: p.sale_details?.rep_override || repNameMap[row.rep_id] || 'Teammate',
         address: `${p.house_number || ''} ${p.street_name || ''}`.trim(),
+        business_name: p.business_name || null,
+        suite: p.suite || null,
+        mode: itemMode,
         timestamp: p.timestamp || row.created_at,
-        details: p.sale_details || {},
-        job_status: p.sale_details?.job_status || 'PREBOOKED',
+        details: p.sale_details || p.lead_details || {},
+        lead_details: p.lead_details || null,
+        job_status: p.sale_details?.job_status || (status === 'WALKTHROUGH_BOOKED' ? 'WALKTHROUGH' : 'PREBOOKED'),
       });
     }
   }
@@ -432,16 +545,7 @@ export async function updateSaleDetails(eventId, updatedDetails) {
   }
 }
 
-// ── Internal helper ──
-function resolveStatus(p) {
-  if (p.outcome_type !== 'CONVO') return p.outcome_type || 'NO_ANSWER';
-  if (p.convo_status === 'CALLBACK' || p.objection_type === 'CALLBACK') return 'CALLBACK';
-  if (p.objection_type === 'NOT INTERESTED') return 'NOT_INTERESTED';
-  if (p.objection_type === 'NEED TO THINK' || p.objection_type === 'NOT DECISION MAKER') return 'THINKING';
-  if (p.objection_type === 'NO SOLICITING') return 'NO_SOLICITING';
-  if (p.objection_type === 'CONSTRUCTION') return 'CONSTRUCTION';
-  return 'CONVO';
-}
+
 
 /**
  * Delete a KNOCK event completely from the database.
@@ -475,3 +579,96 @@ export function calculateCommission(amount) {
 
   return num * pct;
 }
+
+// ── Phase 2: Commercial Leads & Pipeline Services ───────────────────────────
+
+/**
+ * Fetch all persistent commercial leads, sorted by stage and updated_at.
+ */
+export async function getLeads() {
+  if (!navigator.onLine) return [];
+
+  const { data: reps } = await supabase.from('reps').select('user_id, display_name');
+  const repNameMap = {};
+  (reps || []).forEach(r => { repNameMap[r.user_id] = r.display_name; });
+
+  const { data: leads, error } = await supabase
+    .from('leads')
+    .select('*')
+    .order('updated_at', { ascending: false });
+
+  if (error || !leads) {
+    console.warn('[TeamService] getLeads query error (leads table may be unmigrated):', error);
+    return [];
+  }
+
+  return leads.map(l => ({
+    ...l,
+    owner_name: repNameMap[l.owner_rep_id] || 'Team Lead',
+    address: `${l.house_number || ''} ${l.street_name || ''}`.trim()
+  }));
+}
+
+/**
+ * Update a lead's stage and record the change.
+ */
+export async function updateLeadStage(leadId, newStage, updatedFields = {}) {
+  const { error } = await supabase
+    .from('leads')
+    .update({
+      stage: newStage,
+      stage_updated_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...updatedFields
+    })
+    .eq('id', leadId);
+
+  if (error) {
+    console.error('[TeamService] updateLeadStage error:', error);
+    throw new Error('Failed to update stage.');
+  }
+}
+
+/**
+ * Update any lead details (contact, notes, estimate, follow-up, etc).
+ */
+export async function updateLeadDetails(leadId, updates) {
+  const { error } = await supabase
+    .from('leads')
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', leadId);
+
+  if (error) {
+    console.error('[TeamService] updateLeadDetails error:', error);
+    throw new Error('Failed to update lead details.');
+  }
+}
+
+/**
+ * Fetch follow-ups due today or overdue for commercial pre-session radar.
+ */
+export async function getCommercialFollowUps() {
+  if (!navigator.onLine) return [];
+
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .lte('next_follow_up_at', todayEnd.toISOString())
+    .neq('stage', 'WON')
+    .neq('stage', 'LOST')
+    .order('next_follow_up_at', { ascending: true })
+    .limit(20);
+
+  if (error || !data) {
+    return [];
+  }
+
+  return data;
+}
+

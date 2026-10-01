@@ -1,27 +1,42 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { sqlocal, insertLocalEvent, updateLocalEvent, softDeleteLocalEvent } from '../lib/db';
 import { syncEngine } from '../lib/syncEngine';
-import { calculateCommission } from '../lib/teamService';
+import { calculateCommission, getCommercialFollowUps } from '../lib/teamService';
+import {
+  MODES,
+  RESIDENTIAL_OUTCOMES,
+  RESIDENTIAL_CONVO_OPTIONS,
+  COMMERCIAL_STATUS_COLORS,
+  buildCommercialTargetKey,
+  COMMERCIAL_SERVICES,
+  COMMERCIAL_FREQUENCIES,
+  COMMERCIAL_EST_VALUE_CHIPS,
+} from '../config/modes';
 
-const OUTCOMES = [
-  { key: 'NO_ANSWER', label: 'NO ANSWER', color: '#6b7280' },
-  { key: 'CONVO', label: 'CONVO', color: '#3b82f6' },
-  { key: 'SALE', label: 'SALE', color: '#10b981' },
+// ── Residential constants (identical to v1) ─────────────────────────────────
+const OUTCOMES = RESIDENTIAL_OUTCOMES;
+const CONVO_OPTIONS = RESIDENTIAL_CONVO_OPTIONS;
+
+// ── Commercial outcome button definitions ────────────────────────────────────
+const COMMERCIAL_OUTCOMES = [
+  { key: 'NO_ANSWER',          label: 'NO ANSWER',     color: COMMERCIAL_STATUS_COLORS.NO_ANSWER },
+  { key: 'GATEKEEPER',         label: 'GATEKEEPER',    color: COMMERCIAL_STATUS_COLORS.GATEKEEPER },
+  { key: 'DECISION_MAKER',     label: 'DECISION MAKER',color: COMMERCIAL_STATUS_COLORS.DECISION_MAKER },
+  { key: 'WALKTHROUGH_BOOKED', label: 'WALKTHROUGH',   color: COMMERCIAL_STATUS_COLORS.WALKTHROUGH_BOOKED },
 ];
 
-const CONVO_OPTIONS = [
-  'CALLBACK',
+const COMMERCIAL_DM_OPTIONS = [
+  'INTERESTED',
+  'HAS VENDOR',
+  'LANDLORD OR HEAD OFFICE',
+  'NOT NOW',
   'NOT INTERESTED',
-  'ALREADY HAVE / DIY',
-  'BAD TIMING',
-  'NEED TO THINK',
-  'NOT DECISION MAKER',
   'NO SOLICITING',
-  'CONSTRUCTION'
 ];
 
-export default function Logger({ user, repName, onLogout, isActive }) {
+
+export default function Logger({ user, repName, onLogout, isActive, mode = MODES.RESIDENTIAL, onModeChange }) {
   const [dayState, setDayState] = useState('NOT_STARTED');
   const [session, setSession] = useState(null);
   const [street, setStreet] = useState('');
@@ -33,6 +48,25 @@ export default function Logger({ user, repName, onLogout, isActive }) {
 
   const [houseNum, setHouseNum] = useState('');
   const [stepSize, setStepSize] = useState(2);
+
+  // ── Commercial-specific target state ──
+  const [businessName, setBusinessName] = useState('');
+  const [suiteNum, setSuiteNum] = useState('');
+
+  // ── Commercial panel state ──
+  const [showDMOptions, setShowDMOptions] = useState(false);
+  const [showWalkthroughForm, setShowWalkthroughForm] = useState(false);
+  const [walkthroughContactName, setWalkthroughContactName] = useState('');
+  const [walkthroughPhone, setWalkthroughPhone] = useState('');
+  const [walkthroughDate, setWalkthroughDate] = useState('');
+  const [walkthroughNotes, setWalkthroughNotes] = useState('');
+  const [walkthroughServices, setWalkthroughServices] = useState([]);
+  const [walkthroughFrequency, setWalkthroughFrequency] = useState('');
+  const [walkthroughEstValue, setWalkthroughEstValue] = useState('');
+  const [walkthroughVendor, setWalkthroughVendor] = useState('');
+  const [walkthroughContractEnd, setWalkthroughContractEnd] = useState('');
+  const [commercialFollowUps, setCommercialFollowUps] = useState([]);
+  const [loadingFollowUps, setLoadingFollowUps] = useState(false);
 
   const [events, setEvents] = useState([]);
   const [activeBreak, setActiveBreak] = useState(null);
@@ -73,6 +107,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
   // Silent geolocation capture (zero friction)
   const geoRef = useRef({ lat: null, lng: null });
   const watchIdRef = useRef(null);
+
 
   useEffect(() => {
     syncEngine.setUserId(user.id);
@@ -143,7 +178,22 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       }
     }
 
+    async function loadFollowUps() {
+      if (mode === MODES.COMMERCIAL) {
+        setLoadingFollowUps(true);
+        try {
+          const list = await getCommercialFollowUps();
+          setCommercialFollowUps(list || []);
+        } catch (e) {
+          console.error('[Logger] loadFollowUps error:', e);
+        } finally {
+          setLoadingFollowUps(false);
+        }
+      }
+    }
+
     loadRepStats();
+    loadFollowUps();
 
     async function bootstrapLocal() {
       try {
@@ -257,17 +307,49 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     const payload = {
       session_id: sessionId,
       session_date: today,
-      start_time: new Date().toISOString()
+      start_time: new Date().toISOString(),
+      mode,  // include mode in DAY_START payload
     };
     
     await insertLocalEvent(crypto.randomUUID(), 'DAY_START', payload);
     
+    // Propagate mode to parent (MainLayout) so map/team/history stay in sync
+    if (onModeChange) onModeChange(mode);
+
     setSession(payload);
     setEvents([]);
     setStreet('');
     setStreetInput('');
     setStreetCoords(null);
     setHouseNum('');
+    setBusinessName('');
+    setSuiteNum('');
+    setDayState('ACTIVE');
+  }
+
+  async function startDayWithFollowUp(lead) {
+    setError('');
+    const sessionId = crypto.randomUUID();
+    const today = new Date().toISOString().split('T')[0];
+    const payload = {
+      session_id: sessionId,
+      session_date: today,
+      start_time: new Date().toISOString(),
+      mode: MODES.COMMERCIAL,
+    };
+
+    await insertLocalEvent(crypto.randomUUID(), 'DAY_START', payload);
+
+    if (onModeChange) onModeChange(MODES.COMMERCIAL);
+
+    setSession(payload);
+    setEvents([]);
+    setStreet(lead.address || '');
+    setStreetInput(lead.address || '');
+    setStreetCoords(lead.lat && lead.lng ? { lat: lead.lat, lng: lead.lng } : null);
+    setHouseNum('');
+    setBusinessName(lead.business_name || '');
+    setSuiteNum(lead.suite || '');
     setDayState('ACTIVE');
   }
 
@@ -392,12 +474,20 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     setStreetSuggestions([]);
   }
 
-  async function logKnock(outcomeType, convoOpt = null, cbTime = null, saleDetails = null) {
+  // ── Shared knock logger (works for both modes) ───────────────────────────
+  async function logKnock(outcomeType, convoOpt = null, cbTime = null, extraDetails = null) {
     if (dayState !== 'ACTIVE') return;
-    if (!street || !houseNum) {
-      setError('Set street & house number first');
+    const isCommercial = mode === MODES.COMMERCIAL;
+
+    if (!street) {
+      setError(isCommercial ? 'Set plaza / building address first' : 'Set street & house number first');
       return;
     }
+    if (!isCommercial && !houseNum) {
+      setError('Set house number first');
+      return;
+    }
+
     setLogging(true);
     setError('');
 
@@ -419,56 +509,86 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     }
 
     const eventId = crypto.randomUUID();
-    const payload = {
-      event_id: eventId,
-      session_id: session.session_id,
-      street_name: street,
-      house_number: houseNum,
-      timestamp: new Date().toISOString(),
-      outcome_type: outcomeType,
-      convo_status: cStatus,
-      objection_type: oType,
-      callback_time: cbFinal,
-      lat: geoRef.current.lat || streetCoords?.lat,
-      lng: geoRef.current.lng || streetCoords?.lng,
-      ...(saleDetails ? { sale_details: saleDetails } : {}),
-    };
+
+    let payload;
+    if (isCommercial) {
+      const targetKey = buildCommercialTargetKey(businessName, houseNum, street, suiteNum);
+      payload = {
+        event_id: eventId,
+        session_id: session.session_id,
+        mode: MODES.COMMERCIAL,
+        target_type: 'BUSINESS',
+        target_key: targetKey,
+        business_name: businessName.trim() || null,
+        suite: suiteNum.trim() || null,
+        // street_name and house_number are required by the DB trigger (NOT NULL)
+        street_name: street,
+        house_number: houseNum || null,
+        timestamp: new Date().toISOString(),
+        outcome_type: outcomeType,
+        convo_status: cStatus,
+        objection_type: oType,
+        callback_time: cbFinal,
+        lat: geoRef.current.lat || streetCoords?.lat,
+        lng: geoRef.current.lng || streetCoords?.lng,
+        ...(extraDetails ? extraDetails : {}),
+      };
+    } else {
+      payload = {
+        event_id: eventId,
+        session_id: session.session_id,
+        mode: MODES.RESIDENTIAL,
+        street_name: street,
+        house_number: houseNum,
+        timestamp: new Date().toISOString(),
+        outcome_type: outcomeType,
+        convo_status: cStatus,
+        objection_type: oType,
+        callback_time: cbFinal,
+        lat: geoRef.current.lat || streetCoords?.lat,
+        lng: geoRef.current.lng || streetCoords?.lng,
+        ...(extraDetails?.sale_details ? { sale_details: extraDetails.sale_details } : {}),
+      };
+    }
 
     // LOCAL WRITE GUARANTEE (Appends instantly regardless of network)
     await insertLocalEvent(eventId, 'KNOCK', payload);
 
-    // BACKGROUND ROOFTOP GEOCODING (Tags the specific house property perfectly on the map)
+    // BACKGROUND ROOFTOP GEOCODING
     if (navigator.onLine) {
       setTimeout(async () => {
         try {
-          const query = `${houseNum} ${street}`;
+          const query = `${houseNum || ''} ${street}`;
           const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1&country=ca&proximity=-79.3832,43.6532&bbox=-80.8,42.9,-78.5,44.4`);
           const data = await res.json();
           if (data.features?.length > 0) {
-            const updatedPayload = { 
-              ...payload, 
-              lat: data.features[0].center[1], // new exact rooftop lat
-              lng: data.features[0].center[0]  // new exact rooftop lng
+            const updatedPayload = {
+              ...payload,
+              lat: data.features[0].center[1],
+              lng: data.features[0].center[0]
             };
             await sqlocal.sql`UPDATE events SET payload = ${JSON.stringify(updatedPayload)} WHERE event_id = ${eventId}`;
           }
         } catch (e) {
-          // Fail silently; local DB retains the GPS/St center fallback
+          // Fail silently; GPS / street center fallback remains in local DB
         }
       }, 0);
     }
 
-    // Apply safely to UI
-    const numPart = houseNum.match(/\d+/);
-    if (numPart) {
-      const num = parseInt(numPart[0], 10);
-      const nextNum = num + stepSize;
-      setHouseNum(houseNum.replace(numPart[0], nextNum.toString()));
+    // Auto-increment house number (residential only)
+    if (!isCommercial) {
+      const numPart = houseNum.match(/\d+/);
+      if (numPart) {
+        const num = parseInt(numPart[0], 10);
+        const nextNum = num + stepSize;
+        setHouseNum(houseNum.replace(numPart[0], nextNum.toString()));
+      }
     }
 
     setFlashOutcome(outcomeType);
     setTimeout(() => setFlashOutcome(null), 600);
-    
+
+    // Reset panels
     setShowObjections(false);
     setShowCallbackPicker(false);
     setCallbackTime('');
@@ -479,21 +599,72 @@ export default function Logger({ user, repName, onLogout, isActive }) {
     setSaleJobTotal('');
     setSalePayment('');
     setSaleServiceDate('');
+    resetCommercialPanels();
     setLogging(false);
-    
-    // Unshift into events to maintain reverse chronology
+
+    // Prepend to events feed
     setEvents(prev => [{ id: eventId, type: 'KNOCK', ...payload }, ...prev]);
   }
 
+  function resetCommercialPanels() {
+    setShowDMOptions(false);
+    setShowWalkthroughForm(false);
+    setWalkthroughContactName('');
+    setWalkthroughPhone('');
+    setWalkthroughDate('');
+    setWalkthroughNotes('');
+    setWalkthroughServices([]);
+    setWalkthroughFrequency('');
+    setWalkthroughEstValue('');
+    setWalkthroughVendor('');
+    setWalkthroughContractEnd('');
+  }
+
   function handleOutcome(outcomeType) {
-    if (outcomeType === 'CONVO') {
-      setShowObjections(true);
-    } else if (outcomeType === 'SALE') {
-      // Intercept SALE to collect homeowner details first
-      setShowSaleForm(true);
+    if (mode === MODES.COMMERCIAL) {
+      if (outcomeType === 'DECISION_MAKER') {
+        setShowDMOptions(true);
+      } else if (outcomeType === 'WALKTHROUGH_BOOKED') {
+        setShowWalkthroughForm(true);
+      } else {
+        logKnock(outcomeType);
+      }
     } else {
-      logKnock(outcomeType);
+      // Residential (unchanged)
+      if (outcomeType === 'CONVO') {
+        setShowObjections(true);
+      } else if (outcomeType === 'SALE') {
+        setShowSaleForm(true);
+      } else {
+        logKnock(outcomeType);
+      }
     }
+  }
+
+  function handleCommercialDMOption(opt) {
+    if (opt === 'NOT NOW') {
+      // Reuse callback picker for follow-up date
+      setShowCallbackPicker(true);
+      setShowDMOptions(false);
+    } else {
+      logKnock('DECISION_MAKER', null, null, { objection_type: opt });
+    }
+  }
+
+  function submitWalkthroughForm() {
+    if (!walkthroughContactName.trim() || !walkthroughPhone.trim()) return;
+    const leadDetails = {
+      contact_name: walkthroughContactName.trim(),
+      phone: walkthroughPhone.trim(),
+      walkthrough_at: walkthroughDate || null,
+      notes: walkthroughNotes.trim() || null,
+      services: walkthroughServices.length > 0 ? walkthroughServices : null,
+      frequency: walkthroughFrequency || null,
+      est_monthly_value: walkthroughEstValue ? parseFloat(walkthroughEstValue) : null,
+      current_vendor: walkthroughVendor.trim() || null,
+      contract_end: walkthroughContractEnd.trim() || null,
+    };
+    logKnock('WALKTHROUGH_BOOKED', null, null, { lead_details: leadDetails });
   }
 
   function submitSaleForm() {
@@ -507,7 +678,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       service_date: saleServiceDate || null,
       job_status: 'PREBOOKED',
     };
-    logKnock('SALE', null, null, saleDetails);
+    logKnock('SALE', null, null, { sale_details: saleDetails });
   }
 
   function handleConvoOption(opt) {
@@ -693,6 +864,22 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             <span className="pre-session-ready">Ready to knock?</span>
           </div>
 
+          {/* Mode picker — appears on pre-session only */}
+          <div className="mode-picker">
+            <button
+              className={`mode-pick-btn ${mode === MODES.RESIDENTIAL ? 'active' : ''}`}
+              onClick={() => onModeChange && onModeChange(MODES.RESIDENTIAL)}
+            >
+              Residential
+            </button>
+            <button
+              className={`mode-pick-btn ${mode === MODES.COMMERCIAL ? 'active' : ''}`}
+              onClick={() => onModeChange && onModeChange(MODES.COMMERCIAL)}
+            >
+              Commercial
+            </button>
+          </div>
+
           {/* Yesterday card — mirrors closed session stat-card style */}
           <div className="closed-summary pre-session-animated">
             <div className="pre-session-section-title">Yesterday</div>
@@ -715,6 +902,58 @@ export default function Logger({ user, repName, onLogout, isActive }) {
                   </div>
                 </div>
               </>
+            )}
+
+            {/* Commercial Follow-Up Radar */}
+            {mode === MODES.COMMERCIAL && commercialFollowUps.length > 0 && (
+              <div className="closed-summary pre-session-animated" style={{ marginTop: 12 }}>
+                <div className="pre-session-section-title" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Follow-Up Radar</span>
+                  <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>{commercialFollowUps.length} DUE</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                  {commercialFollowUps.map(lead => (
+                    <div
+                      key={lead.id}
+                      onClick={() => startDayWithFollowUp(lead)}
+                      style={{
+                        background: 'var(--bg-elevated)',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
+                          {lead.business_name || 'Business'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                          {lead.suite ? `Unit ${lead.suite}, ` : ''}{lead.address}
+                        </div>
+                        {lead.contacts?.[0]?.name && (
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            Contact: {lead.contacts[0].name} {lead.contacts[0].phone ? `• ${lead.contacts[0].phone}` : ''}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981' }}>
+                          {lead.next_follow_up_at
+                            ? new Date(lead.next_follow_up_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                            : 'Due'}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--accent)', marginTop: 2 }}>
+                          Tap to Knock →
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* All-Time efficiency row */}
@@ -751,6 +990,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
       </div>
     );
   }
+
 
   if (dayState === 'ON_BREAK') {
     return (
@@ -978,6 +1218,9 @@ export default function Logger({ user, repName, onLogout, isActive }) {
           <span className="rep-badge" onClick={() => setShowProfile(!showProfile)}>
             {repName}
           </span>
+          {mode === MODES.COMMERCIAL && (
+            <span className="mode-badge-commercial">COMMERCIAL</span>
+          )}
         </div>
         <div className="header-right">
           <button className="break-btn" onClick={startBreak} disabled={logging}>BREAK</button>
@@ -986,6 +1229,7 @@ export default function Logger({ user, repName, onLogout, isActive }) {
           </button>
         </div>
       </header>
+
 
       {showProfile && (
         <div className="profile-dropdown">
@@ -1008,47 +1252,81 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             <div className="active-street-container">
               <div className="active-street">
                 {street}
-                {isReknock && <span style={{ marginLeft: 8, fontSize: '0.65em', background: '#f59e0b', color: '#000', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>REKNOCK</span>}
+                {isReknock && !mode === MODES.COMMERCIAL && <span style={{ marginLeft: 8, fontSize: '0.65em', background: '#f59e0b', color: '#000', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>REKNOCK</span>}
               </div>
-              <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); setStreetCoords(null); }}>END STREET</button>
+              <button className="end-street-btn" onClick={() => { setStreet(''); setStreetInput(''); setStreetCoords(null); }}>
+                {mode === MODES.COMMERCIAL ? 'END BLOCK' : 'END STREET'}
+              </button>
             </div>
-            
-            <div className="house-cursor-bar">
-              <input
-                type="text"
-                className="house-input"
-                placeholder="House #"
-                value={houseNum}
-                onChange={e => setHouseNum(e.target.value)}
-              />
-              <div className="step-toggles">
-                <button 
-                  className="step-btn active" 
-                  onClick={() => setStepSize(prev => prev > 0 ? -Math.abs(prev) : Math.abs(prev))}
-                >
-                  {stepSize > 0 ? '+' : '-'}
-                </button>
-                <button 
-                  className="step-btn active" 
-                  onClick={() => setStepSize(prev => (prev > 0 ? 1 : -1) * (Math.abs(prev) === 1 ? 2 : 1))}
-                >
-                  {Math.abs(stepSize)}
-                </button>
+
+            {mode === MODES.COMMERCIAL ? (
+              /* ── Commercial target fields ── */
+              <div className="comm-target-fields">
+                <div className="comm-field-row">
+                  <input
+                    type="text"
+                    className="house-input"
+                    placeholder="Unit / Suite #"
+                    value={suiteNum}
+                    onChange={e => setSuiteNum(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    className="house-input"
+                    placeholder="Street # (optional)"
+                    value={houseNum}
+                    onChange={e => setHouseNum(e.target.value)}
+                    style={{ maxWidth: 110 }}
+                  />
+                </div>
+                <input
+                  type="text"
+                  className="sale-form-input"
+                  placeholder="Business / Tenant Name (optional)"
+                  value={businessName}
+                  onChange={e => setBusinessName(e.target.value)}
+                  style={{ marginTop: 6 }}
+                />
               </div>
-            </div>
+            ) : (
+              /* ── Residential house cursor bar (unchanged) ── */
+              <div className="house-cursor-bar">
+                <input
+                  type="text"
+                  className="house-input"
+                  placeholder="House #"
+                  value={houseNum}
+                  onChange={e => setHouseNum(e.target.value)}
+                />
+                <div className="step-toggles">
+                  <button
+                    className="step-btn active"
+                    onClick={() => setStepSize(prev => prev > 0 ? -Math.abs(prev) : Math.abs(prev))}
+                  >
+                    {stepSize > 0 ? '+' : '-'}
+                  </button>
+                  <button
+                    className="step-btn active"
+                    onClick={() => setStepSize(prev => (prev > 0 ? 1 : -1) * (Math.abs(prev) === 1 ? 2 : 1))}
+                  >
+                    {Math.abs(stepSize)}
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="street-bar" style={{ position: 'relative' }}>
             <input
               type="text"
               className="street-input"
-              placeholder="Enter street name..."
+              placeholder={mode === MODES.COMMERCIAL ? 'Enter plaza / building address...' : 'Enter street name...'}
               value={streetInput}
               onChange={handleStreetInputChange}
               onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
             />
             <button className="street-set-btn" onClick={commitStreet}>START</button>
-            
+
             {streetSuggestions.length > 0 && (
               <div className="autocomplete-dropdown" style={{
                 position: 'absolute', top: '100%', left: 0, right: '70px',
@@ -1059,8 +1337,8 @@ export default function Logger({ user, repName, onLogout, isActive }) {
                 boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
               }}>
                 {streetSuggestions.map(f => (
-                  <div 
-                    key={f.id} 
+                  <div
+                    key={f.id}
                     onClick={() => selectStreetSuggestion(f)}
                     style={{
                       padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -1077,56 +1355,228 @@ export default function Logger({ user, repName, onLogout, isActive }) {
         )}
       </div>
 
+      {/* Hero metric — mode-aware */}
       <div className="hero-metric">
         <span className="hero-count">{totalDoors}</span>
-        <span className="hero-label">TOTAL DOORS</span>
+        <span className="hero-label">{mode === MODES.COMMERCIAL ? 'TOTAL TARGETS' : 'TOTAL DOORS'}</span>
       </div>
 
-      <div className="metrics-strip sub-metrics">
-        <div className="metric-item">
-          <span className="metric-count" style={{ color: '#10b981' }}>{totalSales}</span>
-          <span className="metric-label">SALE</span>
+      {/* Metrics strip — mode-aware */}
+      {mode === MODES.COMMERCIAL ? (
+        <div className="metrics-strip sub-metrics">
+          <div className="metric-item">
+            <span className="metric-count" style={{ color: '#10b981' }}>{totalSales}</span>
+            <span className="metric-label">WALKTHROUGH</span>
+          </div>
+          <div className="metric-item">
+            <span className="metric-count" style={{ color: '#3b82f6' }}>{totalConvos}</span>
+            <span className="metric-label">DM REACHED</span>
+          </div>
+          <div className="metric-item">
+            <span className="metric-count" style={{ color: '#f59e0b' }}>{conversionRate}%</span>
+            <span className="metric-label">REACH %</span>
+          </div>
         </div>
-        <div className="metric-item">
-          <span className="metric-count" style={{ color: '#3b82f6' }}>{totalConvos}</span>
-          <span className="metric-label">CONVO</span>
+      ) : (
+        <div className="metrics-strip sub-metrics">
+          <div className="metric-item">
+            <span className="metric-count" style={{ color: '#10b981' }}>{totalSales}</span>
+            <span className="metric-label">SALE</span>
+          </div>
+          <div className="metric-item">
+            <span className="metric-count" style={{ color: '#3b82f6' }}>{totalConvos}</span>
+            <span className="metric-label">CONVO</span>
+          </div>
+          <div className="metric-item">
+            <span className="metric-count" style={{ color: '#f59e0b' }}>{conversionRate}%</span>
+            <span className="metric-label">CLOSE %</span>
+          </div>
         </div>
-        <div className="metric-item">
-          <span className="metric-count" style={{ color: '#f59e0b' }}>{conversionRate}%</span>
-          <span className="metric-label">CLOSE %</span>
-        </div>
-      </div>
+      )}
 
+      {/* ── Shared: callback picker (used by both residential CALLBACK and commercial NOT NOW) ── */}
       {showCallbackPicker ? (
         <div className="objection-panel">
           <div className="objection-header">
-            <span>Callback Time (Optional)</span>
+            <span>{mode === MODES.COMMERCIAL ? 'Follow-up Date' : 'Callback Time (Optional)'}</span>
             <button className="objection-cancel" onClick={() => setShowCallbackPicker(false)}>x</button>
           </div>
           <div className="callback-picker-container">
-            <input 
-              type="datetime-local" 
+            <input
+              type="datetime-local"
               className="callback-input"
               value={callbackTime}
               onChange={e => setCallbackTime(e.target.value)}
             />
-            <button 
+            <button
               className="callback-confirm-btn"
               disabled={logging}
-              onClick={() => logKnock('CONVO', 'CALLBACK', callbackTime)}
+              onClick={() => mode === MODES.COMMERCIAL
+                ? logKnock('DECISION_MAKER', null, callbackTime, { objection_type: 'NOT NOW' })
+                : logKnock('CONVO', 'CALLBACK', callbackTime)
+              }
             >
-              LOG CALLBACK
+              {mode === MODES.COMMERCIAL ? 'LOG NOT NOW' : 'LOG CALLBACK'}
             </button>
           </div>
         </div>
+
+      ) : mode === MODES.COMMERCIAL && showWalkthroughForm ? (
+        /* ── Commercial: walkthrough booking form ── */
+        <div className="sale-form-panel">
+          <div className="objection-header">
+            <span>Walkthrough Details</span>
+            <button className="objection-cancel" onClick={() => setShowWalkthroughForm(false)}>x</button>
+          </div>
+
+          <div className="sale-form-section-label">Contact</div>
+          <input
+            className="sale-form-input"
+            type="text"
+            placeholder="Contact Name *"
+            value={walkthroughContactName}
+            onChange={e => setWalkthroughContactName(e.target.value)}
+          />
+          <input
+            className="sale-form-input"
+            type="tel"
+            placeholder="Phone Number *"
+            value={walkthroughPhone}
+            onChange={e => setWalkthroughPhone(e.target.value)}
+          />
+
+          <div className="sale-form-section-label">Walkthrough Date / Time</div>
+          <input
+            className="sale-form-input"
+            type="datetime-local"
+            value={walkthroughDate}
+            onChange={e => setWalkthroughDate(e.target.value)}
+          />
+
+          <div className="sale-form-section-label">Services of Interest</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {COMMERCIAL_SERVICES.map(srv => {
+              const active = walkthroughServices.includes(srv.key);
+              return (
+                <button
+                  key={srv.key}
+                  type="button"
+                  className={`sale-quick-btn ${active ? 'active' : ''}`}
+                  style={{ fontSize: 11, padding: '6px 10px', height: 'auto' }}
+                  onClick={() => {
+                    setWalkthroughServices(prev =>
+                      prev.includes(srv.key) ? prev.filter(k => k !== srv.key) : [...prev, srv.key]
+                    );
+                  }}
+                >
+                  {srv.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="sale-form-section-label">Cleaning Frequency</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {COMMERCIAL_FREQUENCIES.map(freq => (
+              <button
+                key={freq.key}
+                type="button"
+                className={`sale-quick-btn ${walkthroughFrequency === freq.key ? 'active' : ''}`}
+                style={{ fontSize: 11, padding: '6px 10px', height: 'auto' }}
+                onClick={() => setWalkthroughFrequency(walkthroughFrequency === freq.key ? '' : freq.key)}
+              >
+                {freq.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="sale-form-section-label">Est. Monthly Value ($/mo)</div>
+          <div className="sale-quick-totals" style={{ marginBottom: 8 }}>
+            {COMMERCIAL_EST_VALUE_CHIPS.map(val => (
+              <button
+                key={val}
+                type="button"
+                className={`sale-quick-btn ${walkthroughEstValue === String(val) ? 'active' : ''}`}
+                onClick={() => setWalkthroughEstValue(walkthroughEstValue === String(val) ? '' : String(val))}
+              >
+                ${val.toLocaleString()}
+              </button>
+            ))}
+          </div>
+          <input
+            className="sale-form-input"
+            type="text"
+            inputMode="decimal"
+            placeholder="Custom monthly value (e.g. 1750)"
+            value={walkthroughEstValue}
+            onChange={e => setWalkthroughEstValue(e.target.value)}
+          />
+
+          <div className="sale-form-section-label">Current Vendor / Contract (optional)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input
+              className="sale-form-input"
+              type="text"
+              placeholder="Vendor name"
+              value={walkthroughVendor}
+              onChange={e => setWalkthroughVendor(e.target.value)}
+            />
+            <input
+              className="sale-form-input"
+              type="text"
+              placeholder="Contract end (e.g. 2026-11)"
+              value={walkthroughContractEnd}
+              onChange={e => setWalkthroughContractEnd(e.target.value)}
+            />
+          </div>
+
+          <div className="sale-form-section-label">Notes (optional)</div>
+          <input
+            className="sale-form-input"
+            type="text"
+            placeholder="e.g. Ask for Maria, back entrance"
+            value={walkthroughNotes}
+            onChange={e => setWalkthroughNotes(e.target.value)}
+          />
+
+          <button
+            className="sale-form-submit"
+            disabled={logging || !walkthroughContactName.trim() || !walkthroughPhone.trim()}
+            onClick={submitWalkthroughForm}
+          >
+            {logging ? 'LOGGING...' : 'LOG WALKTHROUGH'}
+          </button>
+        </div>
+
+      ) : mode === MODES.COMMERCIAL && showDMOptions ? (
+        /* ── Commercial: decision-maker sub-result picker ── */
+        <div className="objection-panel">
+          <div className="objection-header">
+            <span>DM Result</span>
+            <button className="objection-cancel" onClick={() => setShowDMOptions(false)}>x</button>
+          </div>
+          <div className="objection-grid">
+            {COMMERCIAL_DM_OPTIONS.map(opt => (
+              <button
+                key={opt}
+                className="objection-btn"
+                disabled={logging}
+                onClick={() => handleCommercialDMOption(opt)}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
+
       ) : showSaleForm ? (
+        /* ── Residential: sale form (unchanged) ── */
         <div className="sale-form-panel">
           <div className="objection-header">
             <span>Sale Details</span>
-            <button className="objection-cancel" onClick={() => setShowSaleForm(false)}>✕</button>
+            <button className="objection-cancel" onClick={() => setShowSaleForm(false)}>x</button>
           </div>
 
-          {/* Section A: Homeowner */}
           <div className="sale-form-section-label">Homeowner</div>
           <input
             className="sale-form-input"
@@ -1150,7 +1600,6 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             onChange={e => setSaleEmail(e.target.value)}
           />
 
-          {/* Section C: Financials */}
           <div className="sale-form-section-label">Job Total</div>
           <div className="sale-quick-totals">
             {SALE_QUICK_TOTALS.map(t => (
@@ -1214,11 +1663,12 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             disabled={logging || !saleHomeownerName.trim() || !salePhone.trim()}
             onClick={submitSaleForm}
           >
-            {logging ? 'LOGGING...' : '✅ LOG SALE'}
+            {logging ? 'LOGGING...' : 'LOG SALE'}
           </button>
         </div>
-      ) : showObjections ? (
 
+      ) : showObjections ? (
+        /* ── Residential: CONVO objection picker (unchanged) ── */
         <div className="objection-panel">
           <div className="objection-header">
             <span>Select Result</span>
@@ -1237,7 +1687,26 @@ export default function Logger({ user, repName, onLogout, isActive }) {
             ))}
           </div>
         </div>
+
+      ) : mode === MODES.COMMERCIAL ? (
+        /* ── Commercial: 4-button outcome grid ── */
+        <div className="outcome-grid outcome-grid-4">
+          {COMMERCIAL_OUTCOMES.map(o => (
+            <button
+              key={o.key}
+              id={`btn-${o.key.toLowerCase()}`}
+              className="outcome-btn"
+              style={{ '--btn-color': o.color }}
+              disabled={logging || !street}
+              onClick={() => handleOutcome(o.key)}
+            >
+              <span className="outcome-label">{o.label}</span>
+            </button>
+          ))}
+        </div>
+
       ) : (
+        /* ── Residential: 3-button outcome grid (unchanged) ── */
         <div className="outcome-grid outcome-grid-3">
           {OUTCOMES.map(o => (
             <button
@@ -1253,6 +1722,8 @@ export default function Logger({ user, repName, onLogout, isActive }) {
           ))}
         </div>
       )}
+
+
 
       <div className="recent-logs">
         <h2 className="recent-title">Recent</h2>
@@ -1278,24 +1749,31 @@ export default function Logger({ user, repName, onLogout, isActive }) {
                 ) : (
                   <>
                     <div className="log-outcome" style={{
-                      color: OUTCOMES.find(o => o.key === e.outcome_type)?.color || '#fff'
+                      color: e.mode === MODES.COMMERCIAL
+                        ? (COMMERCIAL_STATUS_COLORS[e.outcome_type] || '#fff')
+                        : (OUTCOMES.find(o => o.key === e.outcome_type)?.color || '#fff')
                     }}>
                       {e.previousKnocks?.length > 0 && (
                         <span style={{ color: '#6b7280', marginRight: '4px', fontSize: '0.85em' }}>
-                          {e.previousKnocks[0].outcome_type.replace('_', ' ')} ➔ 
+                          {e.previousKnocks[0].outcome_type.replace(/_/g, ' ')} ➔ 
                         </span>
                       )}
-                      {e.outcome_type.replace('_', ' ')}
+                      {e.outcome_type.replace(/_/g, ' ')}
                       {e.previousKnocks?.length > 0 && <span style={{fontSize: '10px', marginLeft: 4, opacity: 0.6}}>({e.previousKnocks.length + 1} visits)</span>}
                     </div>
                     {(e.objection_type || e.convo_status) && (
                       <div className="log-objection">
-                        {e.convo_status === 'CALLBACK' && e.callback_time ? 
-                          `CB: ${new Date(e.callback_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : 
+                        {e.convo_status === 'CALLBACK' && e.callback_time ?
+                          `CB: ${new Date(e.callback_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` :
                           (e.objection_type || e.convo_status)}
                       </div>
                     )}
-                    <div className="log-street">{e.house_number ? `${e.house_number} ` : ''}{e.street_name}</div>
+                    <div className="log-street">
+                      {e.mode === MODES.COMMERCIAL
+                        ? `${e.suite ? `UNIT ${e.suite} ` : ''}${e.business_name ? `${e.business_name} · ` : ''}${e.house_number ? `${e.house_number} ` : ''}${e.street_name || ''}`
+                        : `${e.house_number ? `${e.house_number} ` : ''}${e.street_name || ''}`
+                      }
+                    </div>
                   </>
                 )}
                 <div className="log-time">

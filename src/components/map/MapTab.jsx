@@ -3,23 +3,39 @@ import mapboxgl from 'mapbox-gl';
 import { getActiveSessionGeoJSON } from '../../lib/propertyService';
 import { getTeamGeoJSON, getTeamCoverageGeoJSON } from '../../lib/teamService';
 import { sqlocal } from '../../lib/db';
+import { MODES, COMMERCIAL_STATUS_COLORS, COMMERCIAL_STATUS_LABELS, LEAD_STAGE_COLORS } from '../../config/modes';
 import '../mapStyles.css';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const MAPBOX_STYLE = 'mapbox://styles/xmalikjc/cmnwoppdm00ck01s76r6ccva7';
 
 const STATUS_COLORS = {
-  'NO_ANSWER':      '#6b7280',
-  'CONVO':          '#3b82f6',
-  'SALE':           '#10b981',
-  'NOT_INTERESTED': '#ef4444',
-  'CALLBACK':       '#a855f7',
-  'THINKING':       '#60a5fa',
-  'NO_SOLICITING':  '#dc2626',
-  'CONSTRUCTION':   '#f59e0b',
+  'NO_ANSWER':          '#6b7280',
+  'CONVO':              '#3b82f6',
+  'SALE':               '#10b981',
+  'NOT_INTERESTED':     '#ef4444',
+  'CALLBACK':           '#a855f7',
+  'THINKING':           '#60a5fa',
+  'NO_SOLICITING':      '#dc2626',
+  'CONSTRUCTION':       '#f59e0b',
+  // Commercial mappings
+  'GATEKEEPER':         COMMERCIAL_STATUS_COLORS.GATEKEEPER,
+  'DECISION_MAKER':     COMMERCIAL_STATUS_COLORS.DECISION_MAKER,
+  'DM_INTERESTED':      COMMERCIAL_STATUS_COLORS.DM_INTERESTED,
+  'HAS_VENDOR':         COMMERCIAL_STATUS_COLORS.HAS_VENDOR,
+  'LANDLORD':           COMMERCIAL_STATUS_COLORS.LANDLORD,
+  'NOT_NOW':            COMMERCIAL_STATUS_COLORS.NOT_NOW,
+  'WALKTHROUGH_BOOKED': COMMERCIAL_STATUS_COLORS.WALKTHROUGH_BOOKED,
+  // Lead pipeline stage colors
+  'COLD':               LEAD_STAGE_COLORS.COLD,
+  'CONTACTED':          LEAD_STAGE_COLORS.CONTACTED,
+  'DM_IDENTIFIED':      LEAD_STAGE_COLORS.DM_IDENTIFIED,
+  'QUOTED':             LEAD_STAGE_COLORS.QUOTED,
+  'WON':                LEAD_STAGE_COLORS.WON,
+  'LOST':               LEAD_STAGE_COLORS.LOST,
 };
 
-export default function MapTab({ user, repName, isActive }) {
+export default function MapTab({ user, repName, isActive, mode = MODES.RESIDENTIAL }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const [pinCount, setPinCount] = useState(0);
@@ -77,6 +93,13 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-color': [
             'match', ['get', 'last_status'],
             'SALE', STATUS_COLORS.SALE,
+            'WALKTHROUGH_BOOKED', STATUS_COLORS.WALKTHROUGH_BOOKED,
+            'GATEKEEPER', STATUS_COLORS.GATEKEEPER,
+            'DECISION_MAKER', STATUS_COLORS.DECISION_MAKER,
+            'DM_INTERESTED', STATUS_COLORS.DM_INTERESTED,
+            'HAS_VENDOR', STATUS_COLORS.HAS_VENDOR,
+            'LANDLORD', STATUS_COLORS.LANDLORD,
+            'NOT_NOW', STATUS_COLORS.NOT_NOW,
             'CONVO', STATUS_COLORS.CONVO,
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
@@ -115,6 +138,13 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-stroke-color': [
             'match', ['get', 'last_status'],
             'SALE', STATUS_COLORS.SALE,
+            'WALKTHROUGH_BOOKED', STATUS_COLORS.WALKTHROUGH_BOOKED,
+            'GATEKEEPER', STATUS_COLORS.GATEKEEPER,
+            'DECISION_MAKER', STATUS_COLORS.DECISION_MAKER,
+            'DM_INTERESTED', STATUS_COLORS.DM_INTERESTED,
+            'HAS_VENDOR', STATUS_COLORS.HAS_VENDOR,
+            'LANDLORD', STATUS_COLORS.LANDLORD,
+            'NOT_NOW', STATUS_COLORS.NOT_NOW,
             'CONVO', STATUS_COLORS.CONVO,
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
@@ -142,6 +172,13 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-color': [
             'match', ['get', 'last_status'],
             'SALE', STATUS_COLORS.SALE,
+            'WALKTHROUGH_BOOKED', STATUS_COLORS.WALKTHROUGH_BOOKED,
+            'GATEKEEPER', STATUS_COLORS.GATEKEEPER,
+            'DECISION_MAKER', STATUS_COLORS.DECISION_MAKER,
+            'DM_INTERESTED', STATUS_COLORS.DM_INTERESTED,
+            'HAS_VENDOR', STATUS_COLORS.HAS_VENDOR,
+            'LANDLORD', STATUS_COLORS.LANDLORD,
+            'NOT_NOW', STATUS_COLORS.NOT_NOW,
             'CONVO', STATUS_COLORS.CONVO,
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
@@ -190,6 +227,19 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-stroke-color': [
             'match', ['get', 'last_status'],
             'SALE', STATUS_COLORS.SALE,
+            'WALKTHROUGH_BOOKED', STATUS_COLORS.WALKTHROUGH_BOOKED,
+            'GATEKEEPER', STATUS_COLORS.GATEKEEPER,
+            'DECISION_MAKER', STATUS_COLORS.DECISION_MAKER,
+            'DM_INTERESTED', STATUS_COLORS.DM_INTERESTED,
+            'HAS_VENDOR', STATUS_COLORS.HAS_VENDOR,
+            'LANDLORD', STATUS_COLORS.LANDLORD,
+            'NOT_NOW', STATUS_COLORS.NOT_NOW,
+            'COLD', STATUS_COLORS.COLD,
+            'CONTACTED', STATUS_COLORS.CONTACTED,
+            'DM_IDENTIFIED', STATUS_COLORS.DM_IDENTIFIED,
+            'QUOTED', STATUS_COLORS.QUOTED,
+            'WON', STATUS_COLORS.WON,
+            'LOST', STATUS_COLORS.LOST,
             'CONVO', STATUS_COLORS.CONVO,
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
@@ -209,6 +259,19 @@ export default function MapTab({ user, repName, isActive }) {
           'circle-color': [
             'match', ['get', 'last_status'],
             'SALE', STATUS_COLORS.SALE,
+            'WALKTHROUGH_BOOKED', STATUS_COLORS.WALKTHROUGH_BOOKED,
+            'GATEKEEPER', STATUS_COLORS.GATEKEEPER,
+            'DECISION_MAKER', STATUS_COLORS.DECISION_MAKER,
+            'DM_INTERESTED', STATUS_COLORS.DM_INTERESTED,
+            'HAS_VENDOR', STATUS_COLORS.HAS_VENDOR,
+            'LANDLORD', STATUS_COLORS.LANDLORD,
+            'NOT_NOW', STATUS_COLORS.NOT_NOW,
+            'COLD', STATUS_COLORS.COLD,
+            'CONTACTED', STATUS_COLORS.CONTACTED,
+            'DM_IDENTIFIED', STATUS_COLORS.DM_IDENTIFIED,
+            'QUOTED', STATUS_COLORS.QUOTED,
+            'WON', STATUS_COLORS.WON,
+            'LOST', STATUS_COLORS.LOST,
             'CONVO', STATUS_COLORS.CONVO,
             'NOT_INTERESTED', STATUS_COLORS.NOT_INTERESTED,
             'CALLBACK', STATUS_COLORS.CALLBACK,
@@ -317,7 +380,7 @@ export default function MapTab({ user, repName, isActive }) {
   const loadCoverage = useCallback(async (shouldFit = false) => {
     if (!mapRef.current || !mapReady) return;
     try {
-      const geo = await getTeamCoverageGeoJSON();
+      const geo = await getTeamCoverageGeoJSON(mode);
       const source = mapRef.current.getSource('team-coverage');
       if (source) {
         source.setData(geo);
@@ -335,7 +398,7 @@ export default function MapTab({ user, repName, isActive }) {
     } catch (err) {
       console.error('[MapTab] loadCoverage error:', err);
     }
-  }, [mapReady]);
+  }, [mapReady, mode]);
 
   // ── Load coverage once when switching to COVERAGE view ──
   useEffect(() => {
@@ -357,7 +420,7 @@ export default function MapTab({ user, repName, isActive }) {
   const refreshPins = useCallback(async () => {
     if (!mapRef.current || !mapReady) return;
     try {
-      const geojson = await getActiveSessionGeoJSON();
+      const geojson = await getActiveSessionGeoJSON(mode);
 
       const source = mapRef.current.getSource('properties');
       if (source) {
@@ -370,12 +433,15 @@ export default function MapTab({ user, repName, isActive }) {
       if (rsStart.length > 0) {
         const sessData = JSON.parse(rsStart[0].payload);
         const knocksRs = await sqlocal.sql`SELECT payload FROM events WHERE type = 'KNOCK'`;
-        const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessData.session_id);
+        const knocks = knocksRs.filter(r => {
+          const p = JSON.parse(r.payload);
+          return p.session_id === sessData.session_id && (p.mode === mode || (!p.mode && mode === MODES.RESIDENTIAL));
+        });
 
         const uniqueKeys = new Set();
         knocks.forEach(r => {
           const p = JSON.parse(r.payload);
-          const key = `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
+          const key = p.target_key || `${p.house_number || ''} ${p.street_name || ''}`.trim().toLowerCase();
           if (key) uniqueKeys.add(key);
         });
         setTotalKnocks(uniqueKeys.size);
@@ -385,7 +451,7 @@ export default function MapTab({ user, repName, isActive }) {
 
       // Fetch team ghost data
       if (navigator.onLine && user?.id) {
-        const teamGeo = await getTeamGeoJSON(user.id);
+        const teamGeo = await getTeamGeoJSON(user.id, mode);
         const teamSource = mapRef.current.getSource('team-properties');
         if (teamSource) {
           teamSource.setData(teamGeo);
@@ -508,9 +574,14 @@ export default function MapTab({ user, repName, isActive }) {
             <div className="pin-sheet-header">
               <div>
                 <div className="pin-sheet-address">
+                  {selectedPin.business_name ? `${selectedPin.business_name} · ` : ''}
+                  {selectedPin.suite ? `Unit ${selectedPin.suite}, ` : ''}
                   {selectedPin.address}
                   {selectedPin.isGhost && (
                     <span className="ghost-badge">TEAM</span>
+                  )}
+                  {selectedPin.mode === 'COMMERCIAL' && (
+                    <span className="mode-badge-commercial" style={{ marginLeft: 6 }}>COMMERCIAL</span>
                   )}
                 </div>
                 {selectedPin.isGhost && selectedPin.rep_name && (

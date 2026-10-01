@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { getLocalHistory, forceSyncHistoryDeltas, getTeamHistory } from '../../lib/historyService';
 import SessionDetail from './SessionDetail';
 
+import { MODES } from '../../config/modes';
+
 const AVATAR_COLORS = [
   'linear-gradient(135deg,#6366f1,#8b5cf6)',
   'linear-gradient(135deg,#10b981,#059669)',
@@ -15,7 +17,7 @@ function getInitials(name) {
   return (name || '?').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-export default function HistoryTab({ user }) {
+export default function HistoryTab({ user, mode = MODES.RESIDENTIAL }) {
   const [subTab, setSubTab] = useState('my'); // 'my' | 'team'
   const [sessions, setSessions] = useState([]);
   const [teamSessions, setTeamSessions] = useState([]);
@@ -28,7 +30,7 @@ export default function HistoryTab({ user }) {
     let mounted = true;
 
     async function loadData() {
-      const localData = await getLocalHistory();
+      const localData = await getLocalHistory(mode);
       if (mounted) {
         setSessions(localData);
         setLoading(false);
@@ -37,7 +39,7 @@ export default function HistoryTab({ user }) {
       const hasNewData = await forceSyncHistoryDeltas(user.id);
       
       if (hasNewData && mounted) {
-        const mergedData = await getLocalHistory();
+        const mergedData = await getLocalHistory(mode);
         setSessions(mergedData);
       }
     }
@@ -45,7 +47,7 @@ export default function HistoryTab({ user }) {
     loadData();
 
     const interval = setInterval(async () => {
-      const liveData = await getLocalHistory();
+      const liveData = await getLocalHistory(mode);
       if (mounted) setSessions(liveData);
     }, 5000);
 
@@ -53,7 +55,7 @@ export default function HistoryTab({ user }) {
       mounted = false;
       clearInterval(interval);
     };
-  }, [user.id]);
+  }, [user.id, mode]);
 
   // 2. Fetch team history (Supabase)
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function HistoryTab({ user }) {
 
     async function loadTeamData() {
       setTeamLoading(true);
-      const teamData = await getTeamHistory();
+      const teamData = await getTeamHistory(mode);
       if (mounted) {
         setTeamSessions(teamData);
         setTeamLoading(false);
@@ -72,7 +74,7 @@ export default function HistoryTab({ user }) {
     loadTeamData();
 
     const interval = setInterval(async () => {
-      const teamData = await getTeamHistory();
+      const teamData = await getTeamHistory(mode);
       if (mounted) setTeamSessions(teamData);
     }, 30000);
 
@@ -80,7 +82,7 @@ export default function HistoryTab({ user }) {
       mounted = false;
       clearInterval(interval);
     };
-  }, [subTab]);
+  }, [subTab, mode]);
 
   // Bulk Export all visible team knocks to CSV
   function handleBulkExport() {
@@ -171,6 +173,7 @@ export default function HistoryTab({ user }) {
             timeRange += ' → ' + new Date(s.ended_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           }
 
+          const isCommercial = s.mode === MODES.COMMERCIAL;
           const convRate = s.total_doors > 0 ? ((s.total_sales / s.total_doors) * 100).toFixed(1) : 0;
           const avatarGrad = AVATAR_COLORS[idx % AVATAR_COLORS.length];
 
@@ -183,13 +186,19 @@ export default function HistoryTab({ user }) {
                       {getInitials(s.rep_name)}
                     </div>
                     <div className="session-date-time">
-                      <span className="s-rep-name">{s.rep_name}</span>
+                      <span className="s-rep-name">
+                        {s.rep_name}
+                        {isCommercial && <span className="mode-badge-commercial" style={{ marginLeft: 6 }}>COMMERCIAL</span>}
+                      </span>
                       <span className="s-time">{d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric'})} · {timeRange}</span>
                     </div>
                   </div>
                 ) : (
                   <div className="session-date-time">
-                    <span className="s-date">{d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric'})}</span>
+                    <span className="s-date">
+                      {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric'})}
+                      {isCommercial && <span className="mode-badge-commercial" style={{ marginLeft: 6 }}>COMMERCIAL</span>}
+                    </span>
                     <span className="s-time">{timeRange}</span>
                   </div>
                 )}
@@ -201,19 +210,19 @@ export default function HistoryTab({ user }) {
               <div className="session-stats-row">
                 <div className="s-stat">
                   <span className="s-val">{s.total_doors}</span>
-                  <span className="s-lbl">Doors</span>
+                  <span className="s-lbl">{isCommercial ? 'Targets' : 'Doors'}</span>
                 </div>
                 <div className="s-stat">
                   <span className="s-val" style={{ color: '#3b82f6' }}>{s.total_convos}</span>
-                  <span className="s-lbl">Convos</span>
+                  <span className="s-lbl">{isCommercial ? 'DMs Reached' : 'Convos'}</span>
                 </div>
                 <div className="s-stat">
                   <span className="s-val" style={{ color: '#10b981' }}>{s.total_sales}</span>
-                  <span className="s-lbl">Sales</span>
+                  <span className="s-lbl">{isCommercial ? 'Walkthroughs' : 'Sales'}</span>
                 </div>
                 <div className="s-stat">
                   <span className="s-val" style={{ color: '#f59e0b' }}>{convRate}%</span>
-                  <span className="s-lbl">Close %</span>
+                  <span className="s-lbl">{isCommercial ? 'Reach %' : 'Close %'}</span>
                 </div>
               </div>
 

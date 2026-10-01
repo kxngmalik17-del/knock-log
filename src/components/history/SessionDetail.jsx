@@ -1,13 +1,9 @@
 import React from 'react';
 import SessionMap from './SessionMap';
-
-const OUTCOME_COLORS = {
-  'NO_ANSWER': '#6b7280',
-  'CONVO': '#3b82f6',
-  'SALE': '#10b981'
-};
+import { statusColor, MODES } from '../../config/modes';
 
 export default function SessionDetail({ session, onBack, user }) {
+  const isCommercial = session.mode === MODES.COMMERCIAL;
   const d = new Date(session.started_at);
   const titleDate = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
@@ -86,7 +82,10 @@ export default function SessionDetail({ session, onBack, user }) {
     <div className="detail-view">
       <div className="detail-nav">
         <button className="back-btn" onClick={onBack}>← Back</button>
-        <div className="detail-title">{titleDate}</div>
+        <div className="detail-title">
+          {titleDate}
+          {isCommercial && <span className="mode-badge-commercial" style={{ marginLeft: 8 }}>COMMERCIAL</span>}
+        </div>
       </div>
 
       <div className="detail-summary">
@@ -98,15 +97,15 @@ export default function SessionDetail({ session, onBack, user }) {
         <div className="detail-grid">
           <div className="d-stat">
             <span className="d-val">{session.total_doors}</span>
-            <span className="d-lbl">Doors</span>
+            <span className="d-lbl">{isCommercial ? 'Targets' : 'Doors'}</span>
           </div>
           <div className="d-stat">
             <span className="d-val" style={{ color: '#3b82f6' }}>{session.total_convos}</span>
-            <span className="d-lbl">Convos</span>
+            <span className="d-lbl">{isCommercial ? 'DMs Reached' : 'Convos'}</span>
           </div>
           <div className="d-stat">
             <span className="d-val" style={{ color: '#10b981' }}>{session.total_sales}</span>
-            <span className="d-lbl">Sales</span>
+            <span className="d-lbl">{isCommercial ? 'Walkthroughs' : 'Sales'}</span>
           </div>
         </div>
         <div style={{ textAlign: 'center', marginTop: 12, color: '#9ca3af', fontSize: 13 }}>
@@ -120,7 +119,7 @@ export default function SessionDetail({ session, onBack, user }) {
         <h3 className="timeline-title">Activity Timeline</h3>
         
         {session.events.length === 0 ? (
-          <p style={{ color: '#9ca3af' }}>0 doors knocked.</p>
+          <p style={{ color: '#9ca3af' }}>0 targets logged.</p>
         ) : (
           session.events.map(e => {
             const timeStr = new Date(e.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -146,16 +145,23 @@ export default function SessionDetail({ session, onBack, user }) {
             }
 
             // KNOCK Event
-            const color = OUTCOME_COLORS[e.outcome] || '#fff';
+            const color = statusColor(e.outcome, session.mode || MODES.RESIDENTIAL);
             return (
               <div className="timeline-item" key={e.id}>
                 <div className="t-time">{timeStr}</div>
                 <div className="t-content" style={{ borderLeft: `3px solid ${color}` }}>
                   <div className="t-header">
-                    <span className="t-outcome" style={{ color }}>{e.outcome.replace('_', ' ')}</span>
+                    <span className="t-outcome" style={{ color }}>{e.outcome.replace(/_/g, ' ')}</span>
                     {!e.synced && <span style={{ fontSize: 10, color: '#f59e0b' }}>Syncing</span>}
                   </div>
-                  <div className="t-address">{e.address}</div>
+                  <div className="t-address">
+                    {e.business_name ? `${e.business_name} · ` : ''}{e.suite ? `Unit ${e.suite}, ` : ''}{e.address}
+                  </div>
+                  {e.lead_details?.contact_name && (
+                    <div className="t-detail" style={{ color: '#10b981', fontWeight: 600 }}>
+                      Contact: {e.lead_details.contact_name}{e.lead_details.phone ? ` · ${e.lead_details.phone}` : ''}
+                    </div>
+                  )}
                   {e.objection && (
                     <div className="t-detail">
                       {e.objection === 'CALLBACK' && e.callback_time 

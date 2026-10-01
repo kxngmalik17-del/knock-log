@@ -1,4 +1,5 @@
 import { sqlocal, upsertProperty, getAllProperties } from './db';
+import { modeOf, MODES, resolveStatus } from '../config/modes';
 
 /**
  * PROPERTY DERIVATION SERVICE
@@ -17,39 +18,33 @@ function makePropertyId(address) {
   return 'prop_' + Math.abs(hash).toString(36);
 }
 
-function buildGeoJSONFromKnocks(knocks) {
+function buildGeoJSONFromKnocks(knocks, filterMode = null) {
   const propMap = {};
   const todayStr = new Date().toISOString().split('T')[0];
 
   for (const row of knocks) {
     const p = row.payload ? JSON.parse(row.payload) : row; // handle both sqlocal rows and raw payload objects
+    // Mode filter: only include pins that match the requested mode (or all if filterMode is null)
+    const mode = modeOf(p);
+    if (filterMode !== null && mode !== filterMode) continue;
+
     const address = `${p.house_number || ''} ${p.street_name || ''}`.trim();
     if (!address) continue;
     if (!p.lat || !p.lng) continue; // Must have coordinates to map
 
-    const pid = makePropertyId(address.toLowerCase());
-    
-    // Determine the resolved status for the pin color
-    let resolvedStatus = p.outcome_type || 'NO_ANSWER';
-    if (p.outcome_type === 'CONVO') {
-      if (p.convo_status === 'CALLBACK' || p.objection_type === 'CALLBACK') {
-        resolvedStatus = 'CALLBACK';
-      } else if (p.objection_type === 'NOT INTERESTED') {
-        resolvedStatus = 'NOT_INTERESTED';
-      } else if (p.objection_type === 'NEED TO THINK' || p.objection_type === 'NOT DECISION MAKER') {
-        resolvedStatus = 'THINKING';
-      } else if (p.objection_type === 'NO SOLICITING') {
-        resolvedStatus = 'NO_SOLICITING';
-      } else if (p.objection_type === 'CONSTRUCTION') {
-        resolvedStatus = 'CONSTRUCTION';
-      } else {
-        resolvedStatus = 'CONVO';
-      }
-    }
+    // Commercial uses target_key as the stable id; residential uses address hash
+    const pid = (mode === MODES.COMMERCIAL && p.target_key)
+      ? 'comm_' + p.target_key
+      : makePropertyId(address.toLowerCase());
+
+    const resolvedStatus = resolveStatus(p);
 
     propMap[pid] = {
       property_id: pid,
       address,
+      business_name: p.business_name || null,
+      suite: p.suite || null,
+      mode,
       lat: p.lat,
       lng: p.lng,
       last_status: resolvedStatus,
@@ -70,6 +65,9 @@ function buildGeoJSONFromKnocks(knocks) {
       properties: {
         property_id: p.property_id,
         address: p.address,
+        business_name: p.business_name,
+        suite: p.suite,
+        mode: p.mode,
         last_status: p.last_status,
         last_knocked_at: p.last_knocked_at,
         knocked_today: p.knocked_today,
@@ -91,24 +89,15 @@ export async function derivePropertiesFromEvents() {
   
   for (const row of rs) {
     const p = JSON.parse(row.payload);
+    const mode = modeOf(p);
     const address = `${p.house_number || ''} ${p.street_name || ''}`.trim();
     if (!address) continue;
 
-    const pid = makePropertyId(address.toLowerCase());
-    
-    let resolvedStatus = p.outcome_type || 'NO_ANSWER';
-    if (p.outcome_type === 'CONVO') {
-      if (p.convo_status === 'CALLBACK' || p.objection_type === 'CALLBACK') {
-        resolvedStatus = 'CALLBACK';
-      } else if (p.objection_type === 'NOT INTERESTED') {
-        resolvedStatus = 'NOT_INTERESTED';
-      } else if (p.objection_type === 'NEED TO THINK' || p.objection_type === 'NOT DECISION MAKER') {
-        resolvedStatus = 'THINKING';
-      } else {
-        resolvedStatus = 'CONVO';
-      }
-    }
+    const pid = (mode === MODES.COMMERCIAL && p.target_key)
+      ? 'comm_' + p.target_key
+      : makePropertyId(address.toLowerCase());
 
+    const resolvedStatus = resolveStatus(p);
     const knockedToday = (p.timestamp || row.created_at).startsWith(todayStr) ? 1 : 0;
 
     propMap[pid] = {
@@ -155,7 +144,7 @@ export async function getPropertiesAsGeoJSON() {
   };
 }
 
-export async function getActiveSessionGeoJSON() {
+export async function getActiveSessionGeoJSON(filterMode = null) {
   const rsStart = await sqlocal.sql`SELECT payload FROM events WHERE type = 'DAY_START' ORDER BY created_at DESC LIMIT 1`;
   if (rsStart.length === 0) return { type: 'FeatureCollection', features: [] };
   
@@ -169,13 +158,13 @@ export async function getActiveSessionGeoJSON() {
   const knocksRs = await sqlocal.sql`SELECT payload, created_at FROM events WHERE type = 'KNOCK'`;
   const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessionId);
   
-  return buildGeoJSONFromKnocks(knocks);
+  return buildGeoJSONFromKnocks(knocks, filterMode);
 }
 
-export async function getSessionGeoJSON(sessionId) {
+export async function getSessionGeoJSON(sessionId, filterMode = null) {
   const knocksRs = await sqlocal.sql`SELECT payload, created_at FROM events WHERE type = 'KNOCK'`;
   const knocks = knocksRs.filter(r => JSON.parse(r.payload).session_id === sessionId);
-  return buildGeoJSONFromKnocks(knocks);
+  return buildGeoJSONFromKnocks(knocks, filterMode);
 }
 
 

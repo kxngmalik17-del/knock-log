@@ -4,24 +4,28 @@ import HistoryTab from './history/HistoryTab';
 import MapTab from './map/MapTab';
 import TeamTab from './team/TeamTab';
 import './historyStyles.css';
+import { MODES } from '../config/modes';
 
 export default function MainLayout({ user, repName, onLogout }) {
   const [activeTab, setActiveTab] = useState('KNOCK');
+  // Mode state lives here so all tabs stay in sync.
+  // Logger sets the mode when starting a session; other tabs read it.
+  const [mode, setMode] = useState(MODES.RESIDENTIAL);
 
   return (
     <div className="app-layout">
       <div className="app-content" style={{ paddingBottom: activeTab === 'MAP' || activeTab === 'TEAM' ? '64px' : '70px', minHeight: '100vh', boxSizing: 'border-box' }}>
         <div style={{ display: activeTab === 'KNOCK' ? 'block' : 'none', height: '100%' }}>
-          <Logger user={user} repName={repName} onLogout={onLogout} isActive={activeTab === 'KNOCK'} />
+          <Logger user={user} repName={repName} onLogout={onLogout} isActive={activeTab === 'KNOCK'} mode={mode} onModeChange={setMode} />
         </div>
         <div style={{ display: activeTab === 'HISTORY' ? 'block' : 'none', height: '100%' }}>
-          <HistoryTab user={user} repName={repName} isActive={activeTab === 'HISTORY'} />
+          <HistoryTab user={user} repName={repName} isActive={activeTab === 'HISTORY'} mode={mode} />
         </div>
         <div style={{ display: activeTab === 'MAP' ? 'block' : 'none', height: '100%', width: '100%' }}>
-          <MapTab user={user} repName={repName} isActive={activeTab === 'MAP'} />
+          <MapTab user={user} repName={repName} isActive={activeTab === 'MAP'} mode={mode} />
         </div>
         <div style={{ display: activeTab === 'TEAM' ? 'block' : 'none', height: '100%', width: '100%' }}>
-          <TeamTab user={user} repName={repName} isActive={activeTab === 'TEAM'} />
+          <TeamTab user={user} repName={repName} isActive={activeTab === 'TEAM'} mode={mode} />
         </div>
       </div>
 
