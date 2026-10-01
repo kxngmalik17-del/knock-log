@@ -73,17 +73,27 @@ class SyncEngine {
 
     // Batch process: 25 at a time for faster round-trips
     const batchSize = 25;
+    let sessionUserId = this.userId;
+    if (!sessionUserId) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        sessionUserId = session?.user?.id;
+      } catch (e) {}
+    }
+
     for (let i = 0; i < pending.length; i += batchSize) {
       const batch = pending.slice(i, i + batchSize);
       
       const payload = batch.map(e => {
         const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : (e.payload || {});
+        const resolvedRepId = p.rep_id || sessionUserId || this.userId;
         return {
           event_id: e.event_id,
-          rep_id: this.userId || p.rep_id || 'd616b5ed-d3a0-425d-b0c2-5f47a9320fc5',
+          rep_id: resolvedRepId,
           type: e.type,
           payload: {
             ...p,
+            rep_id: resolvedRepId,
             mode: (p.mode || 'residential').toLowerCase(),
           },
           created_at: e.created_at

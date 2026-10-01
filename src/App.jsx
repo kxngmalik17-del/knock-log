@@ -4,6 +4,7 @@ import { clearLocalUserData } from './lib/db';
 import Auth from './components/Auth';
 import MainLayout from './components/MainLayout';
 import ResetPasswordModal from './components/ResetPasswordModal';
+import { syncEngine } from './lib/syncEngine';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import './index.css';
 
@@ -60,6 +61,15 @@ export default function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      syncEngine.setUserId(session.user.id);
+      syncEngine.start();
+    } else {
+      syncEngine.stop();
+    }
+  }, [session?.user?.id]);
 
   async function fetchRepName(userId) {
     const { data } = await supabase

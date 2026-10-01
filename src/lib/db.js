@@ -65,7 +65,8 @@ export async function getPendingEvents() {
 // Clear all local tables on user switch to prevent cross-account data leakage
 export async function clearLocalUserData() {
   try {
-    await sqlocal.sql`DELETE FROM events WHERE 1=1`;
+    // Only delete synced events, preserve unsynced events so work is never lost
+    await sqlocal.sql`DELETE FROM events WHERE synced = 1`;
     await sqlocal.sql`DELETE FROM properties WHERE 1=1`;
     await sqlocal.sql`DELETE FROM sync_state WHERE 1=1`;
   } catch (e) {

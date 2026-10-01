@@ -425,6 +425,7 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
 
     const payload = {
       session_id: session.session_id,
+      rep_id: user?.id,
       end_time: new Date().toISOString(),
       export_status: exportStatus,
       export_url: exportUrl
@@ -643,6 +644,7 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
       payload = {
         event_id: eventId,
         session_id: session.session_id,
+        rep_id: user?.id,
         mode: MODES.COMMERCIAL,
         target_type: 'BUSINESS',
         target_key: targetKey,
@@ -664,6 +666,7 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
       payload = {
         event_id: eventId,
         session_id: session.session_id,
+        rep_id: user?.id,
         mode: MODES.RESIDENTIAL,
         street_name: street,
         house_number: houseNum,
