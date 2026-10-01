@@ -447,9 +447,25 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
     
     if (val.trim().length > 2) {
       try {
-        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=4&country=ca&proximity=-79.3832,43.6532&bbox=-80.8,42.9,-78.5,44.4`);
+        const prox = geoRef.current.lat
+          ? `${geoRef.current.lng},${geoRef.current.lat}`
+          : '-79.3832,43.6532';
+        const types = mode === MODES.COMMERCIAL
+          ? 'poi,poi.landmark,address,neighborhood'
+          : 'address,street';
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=5&country=ca&types=${types}&proximity=${prox}&bbox=-80.8,42.9,-78.5,44.4`);
         const data = await res.json();
-        setStreetSuggestions(data.features || []);
+        const results = data.features || [];
+        if (mode === MODES.COMMERCIAL && val.trim().length > 2 && geoRef.current.lat) {
+          results.push({
+            id: '__gps_fallback__',
+            text: val.trim(),
+            place_name: 'Use this name with current GPS location',
+            center: [geoRef.current.lng, geoRef.current.lat],
+            _isGpsFallback: true,
+          });
+        }
+        setStreetSuggestions(results);
       } catch (err) {
         setStreetSuggestions([]);
       }
@@ -459,8 +475,20 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
   };
 
   const selectStreetSuggestion = (feature) => {
-    const name = feature.text || feature.place_name?.split(',')[0] || ''; 
-    setStreetInput(name);
+    if (mode === MODES.COMMERCIAL && (feature.place_type?.includes('poi') || feature._isGpsFallback)) {
+      const poiName = feature.text || '';
+      setBusinessName(poiName);
+      if (feature._isGpsFallback) {
+        setStreetInput(poiName);
+      } else {
+        const parts = (feature.place_name || '').split(',').map(s => s.trim());
+        const addressPart = parts.length > 1 ? parts.slice(1, -2).join(', ') : poiName;
+        setStreetInput(addressPart || poiName);
+      }
+    } else {
+      const name = feature.text || feature.place_name?.split(',')[0] || ''; 
+      setStreetInput(name);
+    }
     if (feature.center) {
       setStreetCoords({ lng: feature.center[0], lat: feature.center[1] });
     }
@@ -651,7 +679,7 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
     }
   }
 
-  function submitWalkthroughForm() {
+  async function submitWalkthroughForm() {
     if (!walkthroughContactName.trim() || !walkthroughPhone.trim()) return;
     const leadDetails = {
       contact_name: walkthroughContactName.trim(),
@@ -665,6 +693,34 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
       contract_end: walkthroughContractEnd.trim() || null,
     };
     logKnock('WALKTHROUGH_BOOKED', null, null, { lead_details: leadDetails });
+
+    // ── Auto-create D2D lead in SOB Admin leads table ──────────────────────
+    try {
+      const noteParts = [
+        street ? `Plaza/Address: ${street}` : null,
+        suiteNum ? `Suite: ${suiteNum}` : null,
+        walkthroughServices.length > 0 ? `Services: ${walkthroughServices.join(', ')}` : null,
+        walkthroughFrequency ? `Frequency: ${walkthroughFrequency}` : null,
+        walkthroughVendor.trim() ? `Current Vendor: ${walkthroughVendor.trim()}` : null,
+        walkthroughContractEnd.trim() ? `Contract End: ${walkthroughContractEnd.trim()}` : null,
+        repName ? `Rep: ${repName}` : null,
+        walkthroughNotes.trim() ? `Notes: ${walkthroughNotes.trim()}` : null,
+      ].filter(Boolean).join(' | ');
+
+      await supabase.from('leads').insert({
+        source: 'd2d',
+        company_name: businessName.trim() || street || null,
+        customer_name: walkthroughContactName.trim(),
+        customer_phone: walkthroughPhone.trim(),
+        service_type: 'commercial_cleaning',
+        preferred_date: walkthroughDate || null,
+        quoted_price: walkthroughEstValue ? parseFloat(walkthroughEstValue) : null,
+        notes: noteParts || null,
+        status: 'new',
+      });
+    } catch (e) {
+      console.warn('[Lead creation] Failed to auto-create D2D lead:', e);
+    }
   }
 
   function submitSaleForm() {
@@ -1320,7 +1376,7 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
             <input
               type="text"
               className="street-input"
-              placeholder={mode === MODES.COMMERCIAL ? 'Enter plaza / building address...' : 'Enter street name...'}
+              placeholder={mode === MODES.COMMERCIAL ? 'Search plaza, business, or street...' : 'Enter street name...'}
               value={streetInput}
               onChange={handleStreetInputChange}
               onKeyDown={e => { if (e.key === 'Enter') commitStreet(); }}
@@ -1342,11 +1398,18 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
                     onClick={() => selectStreetSuggestion(f)}
                     style={{
                       padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      fontSize: '13px', cursor: 'pointer', color: 'var(--text-primary)'
+                      fontSize: '13px', cursor: 'pointer', color: 'var(--text-primary)',
+                      ...(f._isGpsFallback ? { borderTop: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.08)' } : {})
                     }}
                   >
-                    <div style={{ fontWeight: 700 }}>{f.text}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{f.place_name}</div>
+                    <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {f._isGpsFallback && <span style={{ fontSize: 14 }}>📍</span>}
+                      {f.place_type?.includes('poi') && !f._isGpsFallback && <span style={{ fontSize: 14 }}>🏢</span>}
+                      {f.text}
+                    </div>
+                    <div style={{ fontSize: '11px', color: f._isGpsFallback ? '#3b82f6' : 'var(--text-muted)', marginTop: '2px' }}>
+                      {f._isGpsFallback ? 'Use this name with your current GPS location' : f.place_name}
+                    </div>
                   </div>
                 ))}
               </div>
