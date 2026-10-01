@@ -76,13 +76,19 @@ class SyncEngine {
     for (let i = 0; i < pending.length; i += batchSize) {
       const batch = pending.slice(i, i + batchSize);
       
-      const payload = batch.map(e => ({
-        event_id: e.event_id,
-        rep_id: this.userId,
-        type: e.type,
-        payload: JSON.parse(e.payload),
-        created_at: e.created_at
-      }));
+      const payload = batch.map(e => {
+        const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : (e.payload || {});
+        return {
+          event_id: e.event_id,
+          rep_id: this.userId || p.rep_id || 'd616b5ed-d3a0-425d-b0c2-5f47a9320fc5',
+          type: e.type,
+          payload: {
+            ...p,
+            mode: (p.mode || 'residential').toLowerCase(),
+          },
+          created_at: e.created_at
+        };
+      });
 
       // Use upsert to prevent duplicates on retries
       const { error } = await supabase
