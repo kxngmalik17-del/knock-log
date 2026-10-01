@@ -441,27 +441,73 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
     }
   }
 
+  const searchSessionTokenRef = useRef('kl-' + Math.random().toString(36).substring(2, 9));
+
   const handleStreetInputChange = async (e) => {
     const val = e.target.value;
     setStreetInput(val);
     
-    if (val.trim().length > 2) {
+    if (val.trim().length > 1) {
       try {
         const prox = geoRef.current.lat
           ? `${geoRef.current.lng},${geoRef.current.lat}`
           : '-79.3832,43.6532';
-        const types = mode === MODES.COMMERCIAL
-          ? 'poi,poi.landmark,address,neighborhood'
-          : 'address,street';
-        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=5&country=ca&types=${types}&proximity=${prox}&bbox=-80.8,42.9,-78.5,44.4`);
-        const data = await res.json();
-        const results = data.features || [];
-        if (mode === MODES.COMMERCIAL && val.trim().length > 2 && geoRef.current.lat) {
+        
+        let results = [];
+
+        // 1. In Commercial mode, use Mapbox SearchBox API (specialized for businesses, plazas, POIs)
+        if (mode === MODES.COMMERCIAL && MAPBOX_TOKEN) {
+          try {
+            const sbUrl = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(val)}&access_token=${MAPBOX_TOKEN}&session_token=${searchSessionTokenRef.current}&language=en&country=ca&proximity=${prox}&limit=6`;
+            const sbRes = await fetch(sbUrl);
+            if (sbRes.ok) {
+              const sbData = await sbRes.json();
+              results = (sbData.suggestions || []).map(s => ({
+                id: s.mapbox_id || s.name,
+                mapbox_id: s.mapbox_id,
+                name: s.name,
+                text: s.name,
+                place_name: s.full_address || s.place_formatted || s.name,
+                address: s.full_address || s.place_formatted || s.name,
+                feature_type: s.feature_type || 'poi',
+                is_poi: s.feature_type === 'poi' || !!s.poi_category || s.place_formatted?.includes('Brand') || false,
+              }));
+            }
+          } catch (e) {
+            // fallback
+          }
+        }
+
+        // 2. If results empty or in residential mode, fallback to Geocoding v5
+        if (results.length === 0 && MAPBOX_TOKEN) {
+          const types = mode === MODES.COMMERCIAL ? 'poi,poi.landmark,address,neighborhood' : 'address,street';
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&limit=5&country=ca&types=${types}&proximity=${prox}`);
+          if (res.ok) {
+            const data = await res.json();
+            results = (data.features || []).map(f => ({
+              id: f.id,
+              name: f.text,
+              text: f.text,
+              place_name: f.place_name,
+              address: f.place_name,
+              center: f.center,
+              lat: f.center?.[1],
+              lng: f.center?.[0],
+              is_poi: f.place_type?.includes('poi') || false,
+            }));
+          }
+        }
+
+        // 3. In commercial mode, append a "Use with GPS" fallback option
+        if (mode === MODES.COMMERCIAL && val.trim().length > 1) {
           results.push({
             id: '__gps_fallback__',
+            name: val.trim(),
             text: val.trim(),
-            place_name: 'Use this name with current GPS location',
-            center: [geoRef.current.lng, geoRef.current.lat],
+            place_name: geoRef.current.lat ? 'Use this name with current GPS location' : 'Use this custom name',
+            center: [geoRef.current.lng || -79.3832, geoRef.current.lat || 43.6532],
+            lat: geoRef.current.lat,
+            lng: geoRef.current.lng,
             _isGpsFallback: true,
           });
         }
@@ -474,23 +520,43 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
     }
   };
 
-  const selectStreetSuggestion = (feature) => {
-    if (mode === MODES.COMMERCIAL && (feature.place_type?.includes('poi') || feature._isGpsFallback)) {
-      const poiName = feature.text || '';
+  const selectStreetSuggestion = async (feature) => {
+    if (mode === MODES.COMMERCIAL && (feature.is_poi || feature.place_type?.includes('poi') || feature._isGpsFallback)) {
+      const poiName = feature.name || feature.text || '';
       setBusinessName(poiName);
       if (feature._isGpsFallback) {
         setStreetInput(poiName);
+        if (geoRef.current.lat) {
+          setStreetCoords({ lng: geoRef.current.lng, lat: geoRef.current.lat });
+        }
       } else {
-        const parts = (feature.place_name || '').split(',').map(s => s.trim());
-        const addressPart = parts.length > 1 ? parts.slice(1, -2).join(', ') : poiName;
-        setStreetInput(addressPart || poiName);
+        const fullAddr = feature.address || feature.place_name || poiName;
+        setStreetInput(fullAddr);
+
+        if (feature.lat && feature.lng) {
+          setStreetCoords({ lng: feature.lng, lat: feature.lat });
+        } else if (feature.center) {
+          setStreetCoords({ lng: feature.center[0], lat: feature.center[1] });
+        } else if (feature.mapbox_id && MAPBOX_TOKEN) {
+          try {
+            const rUrl = `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(feature.mapbox_id)}?access_token=${MAPBOX_TOKEN}&session_token=${searchSessionTokenRef.current}`;
+            const rRes = await fetch(rUrl);
+            if (rRes.ok) {
+              const rData = await rRes.json();
+              const f = rData.features?.[0];
+              if (f?.geometry?.coordinates) {
+                setStreetCoords({ lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] });
+              }
+            }
+          } catch {}
+        }
       }
     } else {
-      const name = feature.text || feature.place_name?.split(',')[0] || ''; 
+      const name = feature.name || feature.text || feature.place_name?.split(',')[0] || ''; 
       setStreetInput(name);
-    }
-    if (feature.center) {
-      setStreetCoords({ lng: feature.center[0], lat: feature.center[1] });
+      if (feature.center) {
+        setStreetCoords({ lng: feature.center[0], lat: feature.center[1] });
+      }
     }
     setStreetSuggestions([]);
   };
@@ -1404,11 +1470,11 @@ export default function Logger({ user, repName, onLogout, isActive, mode = MODES
                   >
                     <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
                       {f._isGpsFallback && <span style={{ fontSize: 14 }}>📍</span>}
-                      {f.place_type?.includes('poi') && !f._isGpsFallback && <span style={{ fontSize: 14 }}>🏢</span>}
-                      {f.text}
+                      {(f.is_poi || f.place_type?.includes('poi') || f.feature_type === 'poi') && !f._isGpsFallback && <span style={{ fontSize: 14 }}>🏢</span>}
+                      {f.name || f.text}
                     </div>
                     <div style={{ fontSize: '11px', color: f._isGpsFallback ? '#3b82f6' : 'var(--text-muted)', marginTop: '2px' }}>
-                      {f._isGpsFallback ? 'Use this name with your current GPS location' : f.place_name}
+                      {f._isGpsFallback ? 'Use this name with your current GPS location' : (f.address || f.place_name)}
                     </div>
                   </div>
                 ))}
